@@ -33,4 +33,15 @@ class FirebaseService
     {
         return substr(str_shuffle('ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789'), 0, 10);
     }
+
+    public function resetParentPassword(string $email): array
+    {
+            $tempPassword = $this->generateTempPassword();
+
+            $existing = $this->auth->getUserByEmail($email);
+
+            $this->auth->changeUserPassword($existing->uid, $tempPassword);
+
+            return ['uid' => $existing->uid, 'password' => $tempPassword];
+    }
 }

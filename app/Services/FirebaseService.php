@@ -9,6 +9,11 @@ class FirebaseService
 {
     public function __construct(protected FirebaseAuth $auth) {}
 
+    public function getAuth(): FirebaseAuth
+    {
+        return $this->auth;
+    }
+
     public function createParentAccount(string $email, string $fullName): array
     {
         $tempPassword = $this->generateTempPassword();

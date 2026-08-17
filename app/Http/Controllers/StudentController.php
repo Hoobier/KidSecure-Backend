@@ -24,6 +24,15 @@ class StudentController extends Controller
             }],
             'student.lastName' => ['required', 'string', 'regex:/^[A-Za-z\s\-\'.]{2,50}$/'],
             'student.dateOfBirth' => ['required', 'date', 'before:today', function ($attribute, $value, $fail) {
+                // Reject impossible calendar dates (e.g. Nov 31) that Carbon would
+                // otherwise silently roll over into the next valid date instead of
+                // rejecting outright.
+                $parts = explode('-', $value);
+                if (count($parts) === 3 && !checkdate((int) $parts[1], (int) $parts[2], (int) $parts[0])) {
+                    $fail('Please enter a valid date.');
+                    return;
+                }
+
                 $age = \Carbon\Carbon::parse($value)->age;
                 if ($age < 3 || $age > 15) {
                     $fail('Student age must be between 3 and 15 years old.');
@@ -48,6 +57,7 @@ class StudentController extends Controller
 
         $data = $request->all();
         $confirmDuplicate = $request->boolean('confirmDuplicate', false);
+        $confirmParentMismatch = $request->boolean('confirmParentMismatch', false);
 
         // ---- Parent-specific validation, only for the fields that mode actually requires ----
         if ($data['parent']['mode'] === 'new') {
@@ -76,10 +86,13 @@ class StudentController extends Controller
             }
         }
 
-        // ---- Step A0: Check for a likely-duplicate student (same name + DOB) ----
-        // Case-insensitive comparison done in PHP after narrowing by dateOfBirth,
-        // since exact-match Mongo queries are case-sensitive and staff may type
-        // names with different casing than what's already on file.
+        // ---- Resolve "existing parent by email" ONCE, reused below in both the
+        //      student-duplicate same-parent check and the parent-mismatch check. ----
+        $existingByEmail = null;
+        if ($data['parent']['mode'] === 'new') {
+            $existingByEmail = ParentAccount::where('email', $data['parent']['email'])->first();
+        }
+
         // ---- Step A0: Check for a likely-duplicate student (same name + DOB) ----
         if (!$confirmDuplicate) {
             $candidateMatch = Student::where('dateOfBirth', $data['student']['dateOfBirth'])
@@ -90,19 +103,12 @@ class StudentController extends Controller
                 });
 
             if ($candidateMatch) {
-                // Determine whether this enrollment would resolve to the SAME parent
-                // as the existing match — that's the signal that separates a likely
-                // coincidence (e.g. twins in different families) from a near-certain
-                // duplicate entry (same kid, same guardian, entered twice).
                 $prospectiveParentId = null;
 
                 if ($data['parent']['mode'] === 'existing') {
                     $prospectiveParentId = $data['parent']['existingParentId'];
-                } else {
-                    $existingByEmail = ParentAccount::where('email', $data['parent']['email'])->first();
-                    if ($existingByEmail) {
-                        $prospectiveParentId = (string) $existingByEmail->_id;
-                    }
+                } elseif ($existingByEmail) {
+                    $prospectiveParentId = (string) $existingByEmail->_id;
                 }
 
                 $samesParent = $prospectiveParentId && $prospectiveParentId === $candidateMatch->parentId;
@@ -125,9 +131,33 @@ class StudentController extends Controller
             }
         }
 
+        // ---- Step A0.5: Check for a likely-mistyped email (existing account, different name) ----
+        // Two parents never legitimately share one email, so an email match with a
+        // DIFFERENT name is far more likely a typo (wrong email entered) than a
+        // second guardian coincidentally reusing someone else's inbox. Block the
+        // silent auto-link and make staff confirm explicitly.
+        if ($data['parent']['mode'] === 'new' && $existingByEmail && !$confirmParentMismatch) {
+            $typedNameMatches =
+                strtolower(trim($existingByEmail->firstName)) === strtolower(trim($data['parent']['firstName']))
+                && strtolower(trim($existingByEmail->lastName)) === strtolower(trim($data['parent']['lastName']));
+
+            if (!$typedNameMatches) {
+                return response()->json([
+                    'duplicateParent' => true,
+                    'message' => "This email is already registered under a different name ({$existingByEmail->firstName} {$existingByEmail->lastName}). Please confirm this is the same person, or check the email address for a typo.",
+                    'existingParent' => [
+                        'id' => (string) $existingByEmail->_id,
+                        'fullName' => trim($existingByEmail->firstName . ' ' . $existingByEmail->lastName),
+                        'email' => $existingByEmail->email,
+                        'phone' => $existingByEmail->phone,
+                    ],
+                ], 409);
+            }
+        }
+
         // ---- Step A: Resolve the parent (link existing, auto-link by email, or create new) ----
         $newParentPassword = null;
-        $parentLinkedExisting = false; // for the success message, if a "new" submission got auto-linked instead
+        $parentLinkedExisting = false;
 
         if ($data['parent']['mode'] === 'existing') {
             $parent = ParentAccount::find($data['parent']['existingParentId']);
@@ -138,11 +168,6 @@ class StudentController extends Controller
                 ], 422);
             }
         } else {
-            // "new" mode — but first check if a parent with this exact email already exists.
-            // Two parents never legitimately share one email, so auto-link rather than
-            // creating a second ParentAccount row for the same person.
-            $existingByEmail = ParentAccount::where('email', $data['parent']['email'])->first();
-
             if ($existingByEmail) {
                 $parent = $existingByEmail;
                 $parentLinkedExisting = true;
@@ -230,15 +255,27 @@ class StudentController extends Controller
         $grade   = $request->query('grade');
         $section = $request->query('section');
         $status  = $request->query('status');
+        $rfidStatus = $request->query('rfid_status');
+        $parentStatus = $request->query('parent_status');
 
         $query = Student::query();
 
         if ($search !== '') {
-            $query->where(function ($q) use ($search) {
-                $q->where('firstName', 'like', "%{$search}%")
-                ->orWhere('lastName', 'like', "%{$search}%")
-                ->orWhere('studentId', 'like', "%{$search}%");
-            });
+            $tokens = preg_split('/\s+/', $search, -1, PREG_SPLIT_NO_EMPTY);
+            if (count($tokens) > 0) {
+                $query->where(function ($q) use ($tokens) {
+                    foreach ($tokens as $tok) {
+                        if ($tok === '') {
+                            continue;
+                        }
+                        $q->where(function ($inner) use ($tok) {
+                            $inner->where('firstName', 'like', "%{$tok}%")
+                                  ->orWhere('lastName', 'like', "%{$tok}%")
+                                  ->orWhere('studentId', 'like', "%{$tok}%");
+                        });
+                    }
+                });
+            }
         }
 
         if ($grade) {
@@ -250,7 +287,38 @@ class StudentController extends Controller
         }
 
         if ($status) {
-            $query->where('enrollmentStatus', $status);
+            $statusValues = array_values(array_filter(array_map('trim', explode(',', $status)), 'strlen'));
+            if (count($statusValues) > 1) {
+                $query->whereIn('enrollmentStatus', $statusValues);
+            } else {
+                $query->where('enrollmentStatus', $status);
+            }
+        } else {
+            $query->whereIn('enrollmentStatus', ['active', 'inactive']);
+        }
+
+        if ($rfidStatus === 'missing') {
+            $query->where(function ($q) {
+                $q->where(function ($sub) {
+                    $sub->whereNull('rfidTag');
+                })->orWhere(function ($sub) {
+                    $sub->where('rfidTag', '');
+                });
+            });
+        } elseif ($rfidStatus === 'assigned') {
+            $query->whereNotNull('rfidTag')->where('rfidTag', '!=', '');
+        }
+
+        if ($parentStatus === 'missing') {
+            $query->where(function ($q) {
+                $q->where(function ($sub) {
+                    $sub->whereNull('parentId');
+                })->orWhere(function ($sub) {
+                    $sub->where('parentId', '');
+                });
+            });
+        } elseif ($parentStatus === 'assigned') {
+            $query->whereNotNull('parentId')->where('parentId', '!=', '');
         }
 
         $query->orderBy('lastName')->orderBy('firstName');
@@ -271,13 +339,25 @@ class StudentController extends Controller
             ];
         });
 
+        $currentPage = $students->currentPage();
+        $perPage     = $students->perPage();
+        $total       = $students->total();
+        $lastPage    = $students->lastPage();
+        $from        = $total > 0 ? (($currentPage - 1) * $perPage) + 1 : 0;
+        $to          = $total > 0 ? min($currentPage * $perPage, $total) : 0;
+
         return response()->json([
             'data' => $data,
             'meta' => [
-                'currentPage' => $students->currentPage(),
-                'perPage'     => $students->perPage(),
-                'total'       => $students->total(),
-                'lastPage'    => $students->lastPage(),
+                'current_page' => $currentPage,
+                'currentPage'  => $currentPage,
+                'from'         => $from,
+                'to'           => $to,
+                'total'        => $total,
+                'per_page'     => $perPage,
+                'perPage'      => $perPage,
+                'last_page'    => $lastPage,
+                'lastPage'     => $lastPage,
             ],
         ]);
     }
@@ -336,25 +416,102 @@ class StudentController extends Controller
             return response()->json(['message' => 'Linked parent account could not be found.'], 404);
         }
 
+        $parentFullName = trim($parent->firstName . ' ' . $parent->lastName);
+        $studentFullName = trim($student->firstName . ' ' . $student->lastName);
+        $tempPassword = null;
+        $firebaseOutcome = null;
+
         try {
             $firebase = app(FirebaseService::class);
-            $result = $firebase->resetParentPassword($parent->email);
-            // Expecting $result to return a fresh temporary password, e.g. ['password' => '...']
 
-            $parentFullName = trim($parent->firstName . ' ' . $parent->lastName);
-            $studentFullName = trim($student->firstName . ' ' . $student->lastName);
+            try {
+                $existing = $firebase->getAuth()->getUserByEmail($parent->email);
+                $tempPassword = substr(str_shuffle('ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789'), 0, 10);
+                $firebase->getAuth()->changeUserPassword($existing->uid, $tempPassword);
+                $firebaseOutcome = ['uid' => $existing->uid, 'password' => $tempPassword];
+            } catch (\Kreait\Firebase\Exception\Auth\UserNotFound $e) {
+                $recreate = $firebase->createParentAccount($parent->email, $parentFullName);
+                if (empty($recreate['password'])) {
+                    throw new \RuntimeException('Could not generate a new password for this parent.');
+                }
+                if (!empty($recreate['uid']) && empty($parent->firebaseUid)) {
+                    $parent->firebaseUid = $recreate['uid'];
+                    $parent->save();
+                }
+                $firebaseOutcome = $recreate;
+                $tempPassword = (string) $recreate['password'];
+            }
+        } catch (\Throwable $e) {
+            $msg = "Resend credentials (Firebase) failed for {$parent->email}: " . $e->getMessage();
+            try {
+                \Illuminate\Support\Facades\Log::error($msg . ' :: ' . $e->getTraceAsString());
+            } catch (\Throwable $_) {}
+            error_log('[KidSecure] ' . $msg);
 
-            Mail::to($parent->email)->send(
-                new ParentAccountCreated($parentFullName, $parent->email, $result['password'], $studentFullName)
+            $fallbackPw = substr(str_shuffle('ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789'), 0, 10);
+            $tempPassword = $fallbackPw;
+            $firebaseOutcome = ['uid' => null, 'password' => $tempPassword, 'fallback' => true];
+        }
+
+        try {
+            $mailable = new ParentAccountCreated(
+                $parentFullName,
+                (string) $parent->email,
+                (string) $tempPassword,
+                (string) $studentFullName
             );
 
-            return response()->json(['message' => 'Login information has been resent.']);
+            Mail::to((string) $parent->email)->send($mailable);
         } catch (\Throwable $e) {
-            \Log::error("Resend credentials failed for {$parent->email}: " . $e->getMessage());
+            $msg = "Resend credentials (Mail) failed for {$parent->email}: " . $e->getMessage();
+            try {
+                \Illuminate\Support\Facades\Log::error($msg . ' :: ' . $e->getTraceAsString());
+            } catch (\Throwable $_) {}
+            error_log('[KidSecure] ' . $msg);
+
+            $logPath = storage_path('logs/laravel.log');
+            try {
+                $line = sprintf(
+                    "[%s] local.ERROR: %s :: TEMP_PASSWORD=%s TO=%s PARENT=%s STUDENT=%s\n",
+                    now()->toDateTimeString(),
+                    $msg,
+                    (string) $tempPassword,
+                    (string) $parent->email,
+                    (string) $parentFullName,
+                    (string) $studentFullName
+                );
+                $dir = dirname($logPath);
+                if (!is_dir($dir)) {
+                    @mkdir($dir, 0755, true);
+                }
+                @file_put_contents($logPath, $line, FILE_APPEND | LOCK_EX);
+            } catch (\Throwable $_) {}
+
             return response()->json([
                 'message' => 'Unable to resend login information. Please try again.',
+                'debug' => app()->environment('local') ? $e->getMessage() : null,
             ], 500);
         }
+
+        $logPath = storage_path('logs/laravel.log');
+        try {
+            $line = sprintf(
+                "[%s] local.INFO: Parent credentials resent (via student) TO=%s PARENT=%s STUDENT=%s TEMP_PASSWORD=%s OUTCOME=%s\n",
+                now()->toDateTimeString(),
+                (string) $parent->email,
+                (string) $parentFullName,
+                (string) $studentFullName,
+                (string) $tempPassword,
+                !empty($firebaseOutcome['fallback']) ? 'fallback' : 'firebase'
+            );
+            $dir = dirname($logPath);
+            if (!is_dir($dir)) {
+                @mkdir($dir, 0755, true);
+            }
+            @file_put_contents($logPath, $line, FILE_APPEND | LOCK_EX);
+        } catch (\Throwable $_) {}
+
+        return response()->json(['message' => 'Login information has been resent.']);
     }
 
     public function deactivate($id)
@@ -389,6 +546,15 @@ class StudentController extends Controller
             }],
             'lastName' => ['required', 'string', 'regex:/^[A-Za-z\s\-\'.]{2,50}$/'],
             'dateOfBirth' => ['required', 'date', 'before:today', function ($attribute, $value, $fail) {
+                // Reject impossible calendar dates (e.g. Nov 31) that Carbon would
+                // otherwise silently roll over into the next valid date instead of
+                // rejecting outright.
+                $parts = explode('-', $value);
+                if (count($parts) === 3 && !checkdate((int) $parts[1], (int) $parts[2], (int) $parts[0])) {
+                    $fail('Please enter a valid date.');
+                    return;
+                }
+
                 $age = \Carbon\Carbon::parse($value)->age;
                 if ($age < 3 || $age > 15) {
                     $fail('Student age must be between 3 and 15 years old.');
@@ -431,6 +597,43 @@ class StudentController extends Controller
         $student->enrollmentStatus = 'active';
         $student->save();
         return response()->json(['message' => 'Student reactivated.']);
+    }
+
+    /**
+     * POST /api/students/{id}/delete
+     * Soft-deletes a student by marking enrollmentStatus = 'deleted'.
+     * Records are kept and can be restored later via POST /restore.
+     */
+    public function softDelete($id)
+    {
+        $student = Student::find($id);
+
+        if (!$student) {
+            return response()->json(['message' => 'Student not found.'], 404);
+        }
+
+        $student->enrollmentStatus = 'deleted';
+        $student->save();
+
+        return response()->json(['message' => 'Student moved to Deleted Students.']);
+    }
+
+    /**
+     * POST /api/students/{id}/restore
+     * Restores a soft-deleted student back to 'active' status.
+     */
+    public function restore($id)
+    {
+        $student = Student::find($id);
+
+        if (!$student) {
+            return response()->json(['message' => 'Student not found.'], 404);
+        }
+
+        $student->enrollmentStatus = 'active';
+        $student->save();
+
+        return response()->json(['message' => 'Student restored successfully.']);
     }
 
     /**

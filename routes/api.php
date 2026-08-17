@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\AttendanceController;
 use App\Http\Controllers\StudentController;
 use App\Http\Controllers\ParentController;
+use App\Http\Controllers\DashboardController;
 
 Route::post('/login', [AuthController::class, 'login']);
 
@@ -25,7 +26,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/attendance-logs/filter-options', [AttendanceController::class, 'filterOptions']);
     Route::post('/students/{id}/reactivate', [StudentController::class, 'reactivate']);
     Route::get('/parents', [ParentController::class, 'index']);
+    Route::get('/parents/{id}', [ParentController::class, 'show']);
+    Route::patch('/parents/{id}', [ParentController::class, 'update']);
     Route::post('/parents/{id}/resend-credentials', [ParentController::class, 'resendCredentials']);
     Route::post('/students/{id}/reassign-rfid', [StudentController::class, 'reassignRfid']);
     Route::post('/students/{id}/reassign-parent', [StudentController::class, 'reassignParent']);
+    Route::get('/dashboard/summary', [DashboardController::class, 'summary']);
+    Route::post('/students/{id}/delete', [StudentController::class, 'softDelete']);
+    Route::post('/students/{id}/restore', [StudentController::class, 'restore']);
 });

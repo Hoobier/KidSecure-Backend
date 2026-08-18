@@ -17,5 +17,6 @@ class ParentAccount extends Model
         'firebaseUid',
         'studentIds',
         'accountCreatedAt',
+        'notificationsEnabled',
     ];
 }

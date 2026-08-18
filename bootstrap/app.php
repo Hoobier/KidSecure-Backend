@@ -3,6 +3,7 @@
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use App\Http\Middleware\VerifyFirebaseToken;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -12,7 +13,15 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
-    $middleware->redirectGuestsTo(fn ($request) => $request->expectsJson() ? null : '/login');
+        $middleware->alias([
+            'firebase.auth' => \App\Http\Middleware\VerifyFirebaseToken::class,
+        ]);
+    })
+
+    ->withMiddleware(function (Middleware $middleware) {
+        $middleware->alias([
+            'verify.firebase' => VerifyFirebaseToken::class,
+        ]);
     })
     
     ->withExceptions(function (Exceptions $exceptions): void {

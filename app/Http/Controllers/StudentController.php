@@ -1,5 +1,5 @@
 <?php
-
+//StudentController.php
 namespace App\Http\Controllers;
 
 use App\Models\Student;
@@ -7,6 +7,7 @@ use App\Models\ParentAccount;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use App\Services\FirebaseService;
+use App\Services\FirebaseRealtimeService;
 use App\Mail\ParentAccountCreated;
 use Illuminate\Support\Facades\Mail;
 
@@ -227,6 +228,17 @@ class StudentController extends Controller
         $parent->studentIds = $existingIds;
         $parent->save();
 
+        // ---- Mirror the new student + parent to Firebase RTDB for the Flutter
+        // parent app. Wrapped in try/catch so a Firebase hiccup never blocks a
+        // successful enrollment — Mongo is still the source of truth. ----
+        try {
+            $realtime = app(FirebaseRealtimeService::class);
+            $realtime->mirrorStudent($student);
+            $realtime->mirrorParent($parent);
+        } catch (\Throwable $e) {
+            \Log::error("RTDB mirror failed after enrollment for student {$student->studentId}: " . $e->getMessage());
+        }
+
         // ---- Step E: Send the parent their login credentials, if a new account was made ----
         if ($newParentPassword) {
             $studentFullName = trim($student->firstName . ' ' . $student->lastName);
@@ -257,6 +269,11 @@ class StudentController extends Controller
         $status  = $request->query('status');
         $rfidStatus = $request->query('rfid_status');
         $parentStatus = $request->query('parent_status');
+        $sortBy  = in_array($request->query('sort_by', $request->query('sort')), ['name', 'studentId'], true)
+            ? $request->query('sort_by', $request->query('sort'))
+            : null;
+        $sortDir = strtolower((string) $request->query('sort_dir', $request->query('direction', 'asc'))) === 'desc' ? 'desc' : 'asc';
+        $currentPage = max(1, (int) $request->query('page', 1));
 
         $query = Student::query();
 
@@ -321,12 +338,77 @@ class StudentController extends Controller
             $query->whereNotNull('parentId')->where('parentId', '!=', '');
         }
 
-        $query->orderBy('lastName')->orderBy('firstName');
+        if ($sortBy) {
+            $array = $query->get()->all();
 
-        $students = $query->paginate($perPage);
+            usort($array, function ($a, $b) use ($sortBy, $sortDir) {
+                if ($sortBy === 'studentId') {
+                    $aId = (string) ($a->studentId ?? '');
+                    $bId = (string) ($b->studentId ?? '');
+                    $aNum = preg_match('/^(\d+)(.*)$/', $aId, $aM);
+                    $bNum = preg_match('/^(\d+)(.*)$/', $bId, $bM);
+                    if ($aNum && $bNum) {
+                        $cmp = ((int) $aM[1]) <=> ((int) $bM[1]);
+                        if ($cmp === 0) {
+                            $cmp = strcasecmp((string) $aM[2], (string) $bM[2]);
+                        }
+                    } else {
+                        $cmp = strcasecmp($aId, $bId);
+                    }
+                } else {
+                    $aFull = trim((string) ($a->firstName ?? '') . ' ' . (string) ($a->middleName ?? '') . ' ' . (string) ($a->lastName ?? ''));
+                    $bFull = trim((string) ($b->firstName ?? '') . ' ' . (string) ($b->middleName ?? '') . ' ' . (string) ($b->lastName ?? ''));
+                    // Primary sort: the displayed full name (FirstName [Middle] LastName) case-insensitive
+                    $cmp = strcasecmp($aFull, $bFull);
+                    if ($cmp === 0) {
+                        // School-roster tiebreak: LastName → FirstName → MiddleName
+                        $cmp = strcasecmp((string) ($a->lastName ?? ''), (string) ($b->lastName ?? ''));
+                        if ($cmp === 0) {
+                            $cmp = strcasecmp((string) ($a->firstName ?? ''), (string) ($b->firstName ?? ''));
+                        }
+                        if ($cmp === 0) {
+                            $cmp = strcasecmp((string) ($a->middleName ?? ''), (string) ($b->middleName ?? ''));
+                        }
+                    }
+                }
+                if ($cmp === 0) {
+                    // Stable fallback: newest first when values tie (mirrors Attendance sort)
+                    $aTs = (string) (isset($a->created_at) ? $a->created_at : '');
+                    $bTs = (string) (isset($b->created_at) ? $b->created_at : '');
+                    return strcmp($bTs, $aTs);
+                }
+                return $sortDir === 'desc' ? -$cmp : $cmp;
+            });
+
+            $total = count($array);
+            $lastPage = max(1, (int) ceil($total / $perPage));
+            if ($currentPage > $lastPage) {
+                $currentPage = $lastPage;
+            }
+            $offset = ($currentPage - 1) * $perPage;
+            $pageSlice = array_slice($array, $offset, $perPage);
+            $from = $total > 0 ? $offset + 1 : 0;
+            $to = $total > 0 ? min($offset + $perPage, $total) : 0;
+            $items = collect($pageSlice);
+        } else {
+            $total = $query->count();
+            $lastPage = max(1, (int) ceil($total / $perPage));
+            if ($currentPage > $lastPage) {
+                $currentPage = $lastPage;
+            }
+            $offset = ($currentPage - 1) * $perPage;
+            $items = $query
+                ->orderBy('created_at', 'desc')
+                ->orderBy('_id', 'desc')
+                ->skip($offset)
+                ->take($perPage)
+                ->get();
+            $from = $total > 0 ? $offset + 1 : 0;
+            $to = $total > 0 ? min($offset + $perPage, $total) : 0;
+        }
 
         // Shape the response so the frontend doesn't need to know Mongo internals
-        $data = collect($students->items())->map(function ($student) {
+        $data = collect($items)->map(function ($student) {
             return [
                 'id'            => $student->_id,
                 'studentId'     => $student->studentId,
@@ -339,12 +421,9 @@ class StudentController extends Controller
             ];
         });
 
-        $currentPage = $students->currentPage();
-        $perPage     = $students->perPage();
-        $total       = $students->total();
-        $lastPage    = $students->lastPage();
-        $from        = $total > 0 ? (($currentPage - 1) * $perPage) + 1 : 0;
-        $to          = $total > 0 ? min($currentPage * $perPage, $total) : 0;
+        $perPage     = $perPage;
+        $from        = $from;
+        $to          = $to;
 
         return response()->json([
             'data' => $data,
@@ -525,6 +604,12 @@ class StudentController extends Controller
         $student->enrollmentStatus = 'inactive';
         $student->save();
 
+        try {
+            app(FirebaseRealtimeService::class)->mirrorStudent($student);
+        } catch (\Throwable $e) {
+            \Log::error("RTDB mirror failed after deactivate for student {$student->studentId}: " . $e->getMessage());
+        }
+
         return response()->json(['message' => 'Student has been deactivated.']);
     }
 
@@ -585,6 +670,12 @@ class StudentController extends Controller
         $student->section     = $data['section'];
         $student->save();
 
+        try {
+            app(FirebaseRealtimeService::class)->mirrorStudent($student);
+        } catch (\Throwable $e) {
+            \Log::error("RTDB mirror failed after update for student {$student->studentId}: " . $e->getMessage());
+        }
+
         return response()->json(['message' => 'Student information updated.']);
     }
 
@@ -596,6 +687,13 @@ class StudentController extends Controller
         }
         $student->enrollmentStatus = 'active';
         $student->save();
+
+        try {
+            app(FirebaseRealtimeService::class)->mirrorStudent($student);
+        } catch (\Throwable $e) {
+            \Log::error("RTDB mirror failed after reactivate for student {$student->studentId}: " . $e->getMessage());
+        }
+
         return response()->json(['message' => 'Student reactivated.']);
     }
 
@@ -615,6 +713,12 @@ class StudentController extends Controller
         $student->enrollmentStatus = 'deleted';
         $student->save();
 
+        try {
+            app(FirebaseRealtimeService::class)->mirrorStudent($student);
+        } catch (\Throwable $e) {
+            \Log::error("RTDB mirror failed after soft-delete for student {$student->studentId}: " . $e->getMessage());
+        }
+
         return response()->json(['message' => 'Student moved to Deleted Students.']);
     }
 
@@ -632,6 +736,12 @@ class StudentController extends Controller
 
         $student->enrollmentStatus = 'active';
         $student->save();
+
+        try {
+            app(FirebaseRealtimeService::class)->mirrorStudent($student);
+        } catch (\Throwable $e) {
+            \Log::error("RTDB mirror failed after restore for student {$student->studentId}: " . $e->getMessage());
+        }
 
         return response()->json(['message' => 'Student restored successfully.']);
     }
@@ -679,6 +789,9 @@ class StudentController extends Controller
         $student->rfidTag = $newTag;
         $student->save();
 
+        // rfidTag is intentionally NOT mirrored to RTDB — the parent app
+        // has no reason to know the physical tag value.
+
         return response()->json(['message' => 'RFID tag updated.', 'rfidTag' => $newTag]);
     }
 
@@ -716,6 +829,7 @@ class StudentController extends Controller
         }
 
         $oldParentId = $student->parentId;
+        $oldParent = null;
 
         // Best-effort: remove student from old parent's studentIds, if that parent exists
         // and the array actually contains this student.
@@ -737,6 +851,17 @@ class StudentController extends Controller
 
         $student->parentId = (string) $newParent->_id;
         $student->save();
+
+        // Both parents' linked-student lists changed, so both need remirroring.
+        try {
+            $realtime = app(FirebaseRealtimeService::class);
+            if ($oldParent) {
+                $realtime->mirrorParent($oldParent);
+            }
+            $realtime->mirrorParent($newParent);
+        } catch (\Throwable $e) {
+            \Log::error("RTDB mirror failed after parent reassignment for student {$student->studentId}: " . $e->getMessage());
+        }
 
         return response()->json([
             'message' => 'Parent/guardian reassigned.',

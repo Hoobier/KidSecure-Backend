@@ -1,9 +1,10 @@
 <?php
-
+//ParentController.php
 namespace App\Http\Controllers;
 
 use App\Models\ParentAccount;
 use App\Models\Student;
+use App\Services\FirebaseRealtimeService;
 use Illuminate\Http\Request;
 
 class ParentController extends Controller
@@ -346,6 +347,12 @@ class ParentController extends Controller
         $parent->email     = $data['email'];
         $parent->phone     = $data['phone'];
         $parent->save();
+
+        try {
+            app(FirebaseRealtimeService::class)->mirrorParent($parent);
+        } catch (\Throwable $e) {
+            \Log::error("RTDB mirror failed after admin-side parent update for parent {$parent->_id}: " . $e->getMessage());
+        }
 
         return response()->json([
             'message' => 'Parent information updated.',

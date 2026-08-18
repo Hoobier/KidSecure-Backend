@@ -1,5 +1,5 @@
 <?php
-
+//routes/api.php
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\AuthController;
@@ -7,6 +7,7 @@ use App\Http\Controllers\AttendanceController;
 use App\Http\Controllers\StudentController;
 use App\Http\Controllers\ParentController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\ParentAppController;
 
 Route::post('/login', [AuthController::class, 'login']);
 
@@ -34,4 +35,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/dashboard/summary', [DashboardController::class, 'summary']);
     Route::post('/students/{id}/delete', [StudentController::class, 'softDelete']);
     Route::post('/students/{id}/restore', [StudentController::class, 'restore']);
+});
+
+// Flutter parent app — Firebase ID token auth, completely separate
+// from the admin portal's Sanctum routes above (sibling group, not nested).
+Route::middleware('verify.firebase')->prefix('app')->group(function () {
+    Route::get('/me', [ParentAppController::class, 'me']);
+    Route::patch('/me', [ParentAppController::class, 'update']);
+    Route::patch('/notifications', [ParentAppController::class, 'updateNotifications']);
 });

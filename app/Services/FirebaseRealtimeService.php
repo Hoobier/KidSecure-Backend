@@ -23,15 +23,25 @@ class FirebaseRealtimeService
             return;
         }
 
-        // CRITICAL FIX: Store the data in the format the Flutter app expects
+        // Pull this student's most recent attendance log so we mirror their
+        // real current status, instead of assuming. Calls to this method
+        // that have nothing to do with attendance (e.g. editing a student's
+        // name) will naturally just re-mirror whatever their last real scan
+        // was, which is correct — their IN/OUT status hasn't changed.
+        $lastLog = \App\Models\AttendanceLog::where('studentId', $student->studentId)
+            ->orderBy('timestamp', 'desc')
+            ->first();
+
         $this->db
             ->getReference("students/{$student->studentId}") // Using human-readable ID
             ->update([
                 'fullName' => trim($student->firstName . ' ' . $student->lastName),
                 'gradeSection' => trim($student->gradeLevel . ' - ' . $student->section),
                 'photoUrl' => $student->photoUrl ?? null,
-                'status' => 'out', // Default status - will be updated by RFID scans
-                'lastScanTime' => now()->timestamp * 1000, // Milliseconds since epoch
+                'status' => $lastLog->type ?? 'out',
+                'lastScanTime' => $lastLog
+                    ? $lastLog->timestamp->timestamp * 1000
+                    : now()->timestamp * 1000,
                 'enrollmentStatus' => $student->enrollmentStatus ?? 'active',
             ]);
     }

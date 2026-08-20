@@ -6,13 +6,44 @@ use App\Models\ParentAccount;
 use App\Models\Student;
 use App\Models\AttendanceLog;
 use Kreait\Firebase\Contract\Database as FirebaseDatabase;
+use Kreait\Firebase\Messaging\CloudMessage;
+use Kreait\Firebase\Contract\Messaging as FirebaseMessaging;
 
 class FirebaseRealtimeService
 {
-    public function __construct(protected FirebaseDatabase $db)
+    public function __construct(
+        protected FirebaseDatabase $db,
+        protected FirebaseMessaging $messaging,)
     {
     }
 
+
+    public function sendScanNotification(AttendanceLog $log): void
+    {
+        $student = Student::where('studentId', $log->studentId)->first();
+        if (!$student) return;
+
+        $parent = ParentAccount::whereIn('studentIds', [(string) $student->_id])->first();
+        if (!$parent || empty($parent->fcmToken) || !($parent->notificationsEnabled ?? true)) {
+            return;
+        }
+
+        $studentName = trim($student->firstName . ' ' . $student->lastName);
+        $action = $log->type === 'in' ? 'entered' : 'left';
+        $time = $log->timestamp->format('g:i A');
+
+        $message = CloudMessage::withTarget('token', $parent->fcmToken)
+            ->withNotification([
+                'title' => 'KidSecure',
+                'body' => "{$studentName} {$action} school at {$time}",
+            ])
+            ->withData([
+                'studentId' => $log->studentId,
+                'type' => $log->type,
+            ]);
+
+        $this->messaging->send($message);
+    }
     /**
      * Writes/updates a student's basic info into RTDB.
      * Uses the STUDENT'S FIREBASE UID or MongoDB _id as the key.

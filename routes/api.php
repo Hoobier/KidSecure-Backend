@@ -47,6 +47,7 @@ Route::middleware('verify.firebase')->prefix('app')->group(function () {
     Route::patch('/me', [ParentAppController::class, 'update']);
     Route::patch('/notifications', [ParentAppController::class, 'updateNotifications']);
     Route::post('/password/change', [PasswordController::class, 'changePassword']);
+    Route::post('/parent/fcm-token', [ParentAppController::class, 'updateFcmToken']);
     
 });
 

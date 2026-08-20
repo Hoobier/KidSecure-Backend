@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Student;
+use App\Models\ParentAccount;
 use App\Services\FirebaseRealtimeService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -130,5 +131,19 @@ class ParentAppController extends Controller
             'message' => 'Notification preference updated.',
             'notificationsEnabled' => $parent->notificationsEnabled,
         ]);
+    }
+
+    public function updateFcmToken(Request $request)
+    {
+        $request->validate([
+            'fcmToken' => 'required|string',
+        ]);
+
+        $parent = $request->attributes->get('parentAccount');
+
+        $parent->fcmToken = $request->input('fcmToken');
+        $parent->save();
+
+        return response()->json(['message' => 'Token updated']);
     }
 }

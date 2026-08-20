@@ -18,5 +18,6 @@ class ParentAccount extends Model
         'studentIds',
         'accountCreatedAt',
         'notificationsEnabled',
+        'fcmToken',
     ];
 }

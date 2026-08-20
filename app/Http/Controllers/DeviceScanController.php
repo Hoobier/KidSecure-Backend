@@ -1,5 +1,5 @@
 <?php
-
+// app/Http/Controllers/DeviceScanController.php
 namespace App\Http\Controllers;
 
 use App\Models\AttendanceLog;
@@ -63,6 +63,7 @@ class DeviceScanController extends Controller
         try {
             app(FirebaseRealtimeService::class)->mirrorAttendanceLog($log);
             app(FirebaseRealtimeService::class)->mirrorStudent($student);
+            app(FirebaseRealtimeService::class)->sendScanNotification($log);
         } catch (\Throwable $e) {
             \Log::error("RTDB mirror failed after scan for student {$student->studentId}: " . $e->getMessage());
         }

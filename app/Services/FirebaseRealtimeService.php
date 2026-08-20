@@ -1,108 +1,111 @@
 <?php
- 
+// app/Services/FirebaseRealtimeService.php
 namespace App\Services;
- 
+
 use App\Models\ParentAccount;
 use App\Models\Student;
+use App\Models\AttendanceLog;
 use Kreait\Firebase\Contract\Database as FirebaseDatabase;
- 
-/**
- * Mirrors student and parent data from MongoDB (source of truth) into
- * Firebase Realtime Database, which the Flutter parent app reads from.
- *
- * Laravel remains the ONLY writer to RTDB — the Flutter app only reads.
- * This keeps Mongo and RTDB from ever disagreeing about who's authoritative.
- *
- * IMPORTANT: students are mirrored using the human-readable `studentId`
- * (e.g. "2026-0001") as the RTDB key, NOT the Mongo `_id`. This is
- * deliberate: ParentAccount.studentIds stores Mongo _ids, but
- * AttendanceLog.studentId uses the human-readable format. Mirroring by
- * studentId keeps every RTDB path consistent with how attendance logs
- * are already keyed, so the Flutter app never has to reconcile two
- * different ID formats.
- */
+
 class FirebaseRealtimeService
 {
     public function __construct(protected FirebaseDatabase $db)
     {
     }
- 
+
     /**
      * Writes/updates a student's basic info into RTDB.
-     *
-     * Uses update() rather than set() on purpose: this method only ever
-     * touches enrollment-related fields (name, grade, section, status).
-     * currentStatus/lastScanTime are written separately by the future
-     * /api/rfid/scan endpoint, and must NOT be wiped out just because an
-     * admin edited a student's grade level.
+     * Uses the STUDENT'S FIREBASE UID or MongoDB _id as the key.
      */
     public function mirrorStudent(Student $student): void
     {
         if (empty($student->studentId)) {
-            // Safety guard: a student without a human-readable ID yet
-            // (shouldn't happen post-enrollment, but avoids writing a
-            // garbage RTDB node if it ever does).
             return;
         }
- 
+
+        // CRITICAL FIX: Store the data in the format the Flutter app expects
         $this->db
-            ->getReference("students/{$student->studentId}")
+            ->getReference("students/{$student->studentId}") // Using human-readable ID
             ->update([
-                'firstName' => $student->firstName,
-                'lastName' => $student->lastName,
-                'gradeLevel' => $student->gradeLevel,
-                'section' => $student->section,
+                'fullName' => trim($student->firstName . ' ' . $student->lastName),
+                'gradeSection' => trim($student->gradeLevel . ' - ' . $student->section),
+                'photoUrl' => $student->photoUrl ?? null,
+                'status' => 'out', // Default status - will be updated by RFID scans
+                'lastScanTime' => now()->timestamp * 1000, // Milliseconds since epoch
                 'enrollmentStatus' => $student->enrollmentStatus ?? 'active',
             ]);
     }
- 
+
     /**
      * Writes/updates a parent's profile into RTDB, keyed by their
-     * Firebase Auth UID (this IS the correct key for parents — Flutter
-     * looks up parents/{currentUser.uid} directly after login).
-     *
-     * Translates ParentAccount.studentIds (Mongo _ids) into the
-     * human-readable studentId format used everywhere else in RTDB.
+     * Firebase Auth UID.
      */
     public function mirrorParent(ParentAccount $parent): void
     {
         if (empty($parent->firebaseUid)) {
-            // No Firebase account yet (e.g. account creation failed and
-            // was logged, but never retried) — nothing to mirror to.
             return;
         }
- 
+
+        // Get human-readable student IDs
         $studentIds = $this->resolveHumanReadableStudentIds($parent->studentIds ?? []);
- 
+
         $this->db
             ->getReference("parents/{$parent->firebaseUid}")
             ->update([
-                'firstName' => $parent->firstName,
-                'lastName' => $parent->lastName,
+                'fullName' => trim($parent->firstName . ' ' . $parent->lastName),
                 'email' => $parent->email,
                 'phone' => $parent->phone,
-                'studentIds' => empty($studentIds)
-                    ? null
-                    : array_fill_keys($studentIds, true),
+                'studentIds' => $studentIds, // Store as simple array, not key-value
+                'notificationsEnabled' => $parent->notificationsEnabled ?? true,
             ]);
     }
- 
+
     /**
      * Converts an array of Mongo Student _ids into human-readable
-     * studentId strings (e.g. "2026-0001"), skipping any that can't
-     * be resolved (e.g. a stale/removed student reference).
+     * studentId strings (e.g. "2026-0001").
      */
     private function resolveHumanReadableStudentIds(array $mongoIds): array
     {
         if (empty($mongoIds)) {
             return [];
         }
- 
+
         return Student::whereIn('_id', $mongoIds)
             ->pluck('studentId')
             ->filter()
             ->values()
             ->all();
     }
+
+     public function mirrorAttendanceLog(AttendanceLog $log): void
+    {
+        // Get student info for the log
+        $student = Student::where('studentId', $log->studentId)->first();
+        
+        $studentName = $student 
+            ? trim($student->firstName . ' ' . $student->lastName) 
+            : $log->studentId;
+
+        $this->db
+            ->getReference("entryExitLogs/{$log->studentId}/{$log->_id}")
+            ->update([
+                'status' => $log->type, // 'in' or 'out'
+                'timestamp' => $log->timestamp->timestamp * 1000, // milliseconds
+                'studentName' => $studentName,
+                'rfidTag' => $log->rfidTag,
+                'method' => $log->method ?? 'rfid',
+            ]);
+    }
+
+    /**
+     * Sync all existing logs for a student to RTDB
+     */
+    public function syncStudentLogs(Student $student): void
+    {
+        $logs = AttendanceLog::where('studentId', $student->studentId)->get();
+        
+        foreach ($logs as $log) {
+            $this->mirrorAttendanceLog($log);
+        }
+    }
 }
- 

@@ -1,5 +1,5 @@
 <?php
-
+// app/Http/Controllers/ParentAppController.php
 namespace App\Http\Controllers;
 
 use App\Models\Student;

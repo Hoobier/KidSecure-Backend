@@ -8,8 +8,11 @@ use App\Http\Controllers\StudentController;
 use App\Http\Controllers\ParentController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ParentAppController;
+use App\Http\Controllers\PasswordController;
+use App\Http\Controllers\DeviceScanController;
 
 Route::post('/login', [AuthController::class, 'login']);
+Route::post('/password/forgot', [PasswordController::class, 'forgotPassword']);
 
 Route::get('/user', function (Request $request) {
     return $request->user();
@@ -43,4 +46,10 @@ Route::middleware('verify.firebase')->prefix('app')->group(function () {
     Route::get('/me', [ParentAppController::class, 'me']);
     Route::patch('/me', [ParentAppController::class, 'update']);
     Route::patch('/notifications', [ParentAppController::class, 'updateNotifications']);
+    Route::post('/password/change', [PasswordController::class, 'changePassword']);
+    
+});
+
+Route::middleware('verify.device')->prefix('device')->group(function () {
+    Route::post('/scan', [DeviceScanController::class, 'scan']);
 });

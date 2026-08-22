@@ -1,5 +1,5 @@
 <?php
-//StudentController.php
+// app/Http/Controllers/StudentController.php
 namespace App\Http\Controllers;
 
 use App\Models\Student;
@@ -206,6 +206,16 @@ class StudentController extends Controller
         $countThisYear = Student::where('studentId', 'like', "{$year}-%")->count();
         $nextNumber = str_pad($countThisYear + 1, 4, '0', STR_PAD_LEFT);
         $studentId = "{$year}-{$nextNumber}";
+
+        if (!empty($data['rfidTag'])) {
+            $rfidConflict = Student::where('rfidTag', trim($data['rfidTag']))->first();
+
+            if ($rfidConflict) {
+                return response()->json([
+                    'message' => "This RFID tag is already assigned to {$rfidConflict->firstName} {$rfidConflict->lastName} ({$rfidConflict->studentId}).",
+                ], 422);
+            }
+        }
 
         // ---- Step C: Create the student record ----
         $student = new Student();

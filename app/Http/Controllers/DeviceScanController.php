@@ -6,18 +6,14 @@ use App\Models\AttendanceLog;
 use App\Models\Student;
 use App\Services\FirebaseRealtimeService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Validator;
 
-/**
- * Receives scan events from the ESP32 turnstile. Authenticated via
- * VerifyDeviceSecret middleware — see routes/api.php.
- */
 class DeviceScanController extends Controller
 {
-    /**
-     * POST /api/device/scan
-     * Body: { "rfidTag": "A3F2910C" }
-     */
+    // Shared with EnrollmentRfidController below.
+    const LISTEN_KEY = 'rfid_enrollment_listen';
+
     public function scan(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -33,6 +29,43 @@ class DeviceScanController extends Controller
 
         $rfidTag = trim($request->input('rfidTag'));
 
+        // --- Enrollment "listening for a new tag" mode -----------------
+        $listen = Cache::get(self::LISTEN_KEY);
+
+        if ($listen && ($listen['active'] ?? false)) {
+            $existing = Student::where('rfidTag', $rfidTag)
+                ->when($listen['excludeStudentId'] ?? null, function ($q, $excludeId) {
+                    $q->where('_id', '!=', $excludeId);
+                })
+                ->first();
+
+            if ($existing) {
+                Cache::put(self::LISTEN_KEY, array_merge($listen, [
+                    'active' => false,
+                    'result' => [
+                        'status' => 'duplicate',
+                        'studentName' => trim($existing->firstName . ' ' . $existing->lastName),
+                    ],
+                ]), now()->addSeconds(20));
+            } else {
+                Cache::put(self::LISTEN_KEY, array_merge($listen, [
+                    'active' => false,
+                    'result' => [
+                        'status' => 'new',
+                        'rfidTag' => $rfidTag,
+                    ],
+                ]), now()->addSeconds(20));
+            }
+
+            // Neutral response — this scan was for enrollment, not entry/exit,
+            // so it shouldn't trigger a "denied" beep on the reader.
+            return response()->json([
+                'result' => 'noted',
+                'reason' => 'Tag received for registration.',
+            ]);
+        }
+
+        // --- Normal turnstile attendance flow (unchanged) ---------------
         $student = Student::where('rfidTag', $rfidTag)
             ->whereIn('enrollmentStatus', ['active'])
             ->first();
@@ -44,8 +77,6 @@ class DeviceScanController extends Controller
             ]);
         }
 
-        // Auto-toggle: look at this student's most recent log entry to
-        // decide whether this new scan is an IN or an OUT.
         $lastLog = AttendanceLog::where('studentId', $student->studentId)
             ->orderBy('timestamp', 'desc')
             ->first();

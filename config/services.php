@@ -62,4 +62,8 @@ return [
         'scan_secret' => env('DEVICE_SCAN_SECRET'),
     ],
 
+    'brevo' => [
+    'key' => env('BREVO_API_KEY'),
+    ],
+
 ];

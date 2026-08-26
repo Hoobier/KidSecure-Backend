@@ -8,6 +8,7 @@ use App\Models\AttendanceLog;
 use Kreait\Firebase\Contract\Database as FirebaseDatabase;
 use Kreait\Firebase\Messaging\CloudMessage;
 use Kreait\Firebase\Contract\Messaging as FirebaseMessaging;
+use Kreait\Firebase\Messaging\AndroidConfig;
 
 class FirebaseRealtimeService
 {
@@ -47,7 +48,15 @@ class FirebaseRealtimeService
             ->withData([
                 'studentId' => $log->studentId,
                 'type' => $log->type,
-            ]);
+            ])
+            
+            ->withAndroidConfig(AndroidConfig::fromArray([
+                'priority' => 'high',
+                'notification' => [
+                    'channel_id' => 'kidsecure_scan_events',
+                    'sound' => 'default',
+                ],
+            ]));
 
         $this->messaging->send($message);
     }

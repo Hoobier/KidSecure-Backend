@@ -12,6 +12,7 @@
         "laravel/sanctum": "^4.0",
         "laravel/tinker": "^2.10.1",
         "mongodb/laravel-mongodb": "^5.9",
+        "sendinblue/api-v3-sdk": "^8.4",
         "symfony/brevo-mailer": "^7.4",
         "symfony/http-client": "^7.4"
     },

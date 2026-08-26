@@ -17,6 +17,13 @@ class FirebaseRealtimeService
     {
     }
 
+    public function clearAllData(): void
+    {
+        $this->db->getReference('students')->remove();
+        $this->db->getReference('parents')->remove();
+        $this->db->getReference('entryExitLogs')->remove();
+    }
+
 
     public function sendScanNotification(AttendanceLog $log): void
     {

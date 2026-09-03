@@ -22,5 +22,27 @@ class Student extends Model
         'rfidTag',
         'parentId',
         'dateEnrolled',
+        'documents',
     ];
+
+    public function upsertDocument(array $newDocument): void
+    {
+        $documents = $this->documents ?? [];
+
+        $found = false;
+        foreach ($documents as $index => $doc) {
+            if ($doc['type'] === $newDocument['type']) {
+                $documents[$index] = $newDocument;
+                $found = true;
+                break;
+            }
+        }
+
+        if (!$found) {
+            $documents[] = $newDocument;
+        }
+
+        $this->documents = $documents;
+        $this->save();
+    }
 }

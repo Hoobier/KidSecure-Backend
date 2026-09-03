@@ -57,8 +57,13 @@ class DocumentUploadService
      */
     public function getSignedUrl(string $publicId, string $resourceType = 'image'): string
     {
-        return $this->cloudinary->image($publicId)
-            ->resourceType($resourceType)
+        $asset = match ($resourceType) {
+            'raw' => $this->cloudinary->raw($publicId),
+            'video' => $this->cloudinary->video($publicId),
+            default => $this->cloudinary->image($publicId),
+        };
+
+        return $asset
             ->deliveryType('authenticated')
             ->signUrl(true)
             ->toUrl();

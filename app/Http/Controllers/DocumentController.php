@@ -65,4 +65,36 @@ class DocumentController extends Controller
             ], 500);
         }
     }
+
+    public function show(string $id, string $type)
+    {
+        $student = Student::find($id);
+
+        if (!$student) {
+            return response()->json([
+                'message' => 'We couldn\'t find that student. Please refresh and try again.',
+            ], 404);
+        }
+
+        $documents = $student->documents ?? [];
+        $document = collect($documents)->firstWhere('type', $type);
+
+        if (!$document) {
+            return response()->json([
+                'message' => 'No document of this type has been uploaded yet.',
+            ], 404);
+        }
+
+        $signedUrl = $this->uploadService->getSignedUrl(
+            $document['public_id'],
+            $document['resource_type'] ?? 'image'
+        );
+
+        return response()->json([
+            'type' => $document['type'],
+            'original_filename' => $document['original_filename'],
+            'uploaded_at' => $document['uploaded_at'],
+            'view_url' => $signedUrl,
+        ]);
+    }
 }

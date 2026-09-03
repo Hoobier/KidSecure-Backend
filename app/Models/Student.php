@@ -23,6 +23,8 @@ class Student extends Model
         'parentId',
         'dateEnrolled',
         'documents',
+        'isTransferee',
+        'previousSchool',
     ];
 
     public function upsertDocument(array $newDocument): void

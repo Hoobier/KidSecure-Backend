@@ -12,6 +12,7 @@ use App\Http\Controllers\PasswordController;
 use App\Http\Controllers\DeviceScanController;
 use App\Http\Controllers\EnrollmentRfidController;
 use App\Http\Controllers\DocumentController;
+use App\Http\Controllers\EnrollmentDraftDocumentController;
 
 
 Route::post('/login', [AuthController::class, 'login']);
@@ -50,6 +51,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/enrollment/rfid/stop-listening', [EnrollmentRfidController::class, 'stopListening']);
     Route::post('/students/{id}/documents', [DocumentController::class, 'store']);
     Route::get('/students/{id}/documents/{type}', [DocumentController::class, 'show']);
+    Route::post('/enrollment-drafts/{draftId}/documents', [EnrollmentDraftDocumentController::class, 'store']);
+    Route::get('/enrollment-drafts/{draftId}/documents/{type}', [EnrollmentDraftDocumentController::class, 'show']);
 });
 
 // Flutter parent app — Firebase ID token auth, completely separate

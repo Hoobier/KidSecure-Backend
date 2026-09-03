@@ -27,15 +27,17 @@ class DocumentUploadService
      * Uploads a file to Cloudinary under a private folder for this student,
      * and returns the data we'll save into the student's record.
      */
-    public function upload(UploadedFile $file, string $studentId, string $documentType): array
+    public function upload(UploadedFile $file, string $ownerId, string $documentType, string $folderPrefix = 'students'): array
     {
-        $folder = "kidsecure/students/{$studentId}";
+        $folder = "kidsecure/{$folderPrefix}/{$ownerId}";
+
+        $resourceType = $file->getClientOriginalExtension() === 'pdf' ? 'raw' : 'image';
 
         $result = $this->cloudinary->uploadApi()->upload($file->getRealPath(), [
             'folder' => $folder,
             'public_id' => $documentType,
             'overwrite' => true,        // re-uploading the same type replaces the old file
-            'resource_type' => 'auto',  // handles both images and PDFs automatically
+            'resource_type' => $resourceType,  // handles both images and PDFs automatically
             'type' => 'authenticated',  // NOT publicly accessible — needs a signed URL to view
         ]);
 

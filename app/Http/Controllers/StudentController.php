@@ -43,6 +43,13 @@ class StudentController extends Controller
             'student.section' => 'required|string',
             'parent.mode' => 'required|in:new,existing',
             'rfidTag' => 'nullable|string',
+
+            'student.isTransferee' => 'nullable|boolean',
+            'student.previousSchool' => ['nullable', 'string', 'max:150', function ($attribute, $value, $fail) use ($request) {
+                if ($request->input('student.isTransferee') && empty(trim((string) $value))) {
+                    $fail('Please enter the name of the student\'s previous school.');
+                }
+            }],
         ], [
             'student.firstName.regex' => 'First name may only contain letters, spaces, hyphens, apostrophes, and periods (2–50 characters).',
             'student.lastName.regex' => 'Last name may only contain letters, spaces, hyphens, apostrophes, and periods (2–50 characters).',
@@ -230,6 +237,9 @@ class StudentController extends Controller
         $student->parentId = (string) $parent->_id;
         $student->enrollmentStatus = 'active';
         $student->dateEnrolled = now();
+        $student->documents = $data['documents'] ?? [];
+        $student->isTransferee = $data['student']['isTransferee'] ?? false;
+        $student->previousSchool = $data['student']['previousSchool'] ?? null;
         $student->save();
 
         // ---- Step D: Link the student to the parent's studentIds array ----

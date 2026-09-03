@@ -487,6 +487,9 @@ class StudentController extends Controller
                 'status'      => $student->enrollmentStatus ?? 'active',
                 'enrolledAt'  => $student->created_at,
                 'rfidTag'     => $student->rfidTag,
+                'documents'      => $student->documents ?? [],
+                'isTransferee'   => $student->isTransferee ?? false,  
+                'previousSchool' => $student->previousSchool ?? null,
                 'parent'      => $parent ? [
                     'id'          => $parent->_id,
                     'fullName'    => trim("{$parent->firstName} {$parent->lastName}"),

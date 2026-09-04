@@ -25,6 +25,7 @@ class Student extends Model
         'documents',
         'isTransferee',
         'previousSchool',
+        'reportCard',
     ];
 
     public function upsertDocument(array $newDocument): void

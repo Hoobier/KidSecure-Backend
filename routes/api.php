@@ -53,6 +53,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/students/{id}/documents/{type}', [DocumentController::class, 'show']);
     Route::post('/enrollment-drafts/{draftId}/documents', [EnrollmentDraftDocumentController::class, 'store']);
     Route::get('/enrollment-drafts/{draftId}/documents/{type}', [EnrollmentDraftDocumentController::class, 'show']);
+    Route::get('/students/{id}/report-card', [StudentController::class, 'getReportCard']);
+    Route::post('/students/{id}/report-card', [StudentController::class, 'saveReportCard']);
 });
 
 // Flutter parent app — Firebase ID token auth, completely separate

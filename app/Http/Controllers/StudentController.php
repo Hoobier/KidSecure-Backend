@@ -72,6 +72,7 @@ class StudentController extends Controller
             $parentValidator = Validator::make($data['parent'], [
                 'firstName' => ['required', 'string', 'regex:/^[A-Za-z\s\-\'.]{2,50}$/'],
                 'lastName' => ['required', 'string', 'regex:/^[A-Za-z\s\-\'.]{2,50}$/'],
+                'relationship' => ['required', 'string', 'in:Mom,Dad,Guardian'],
                 'email' => ['required', 'email'],
                 'phone' => ['required', 'regex:/^09\d{9}$/'],
             ], [
@@ -183,6 +184,7 @@ class StudentController extends Controller
                 $parent = new ParentAccount();
                 $parent->firstName = $data['parent']['firstName'];
                 $parent->lastName = $data['parent']['lastName'];
+                $parent->relationship = $data['parent']['relationship'];
                 $parent->email = $data['parent']['email'];
                 $parent->phone = $data['parent']['phone'];
                 $parent->firebaseUid = null;
@@ -493,6 +495,7 @@ class StudentController extends Controller
                 'parent'      => $parent ? [
                     'id'          => $parent->_id,
                     'fullName'    => trim("{$parent->firstName} {$parent->lastName}"),
+                    'relationship' => $parent->relationship,
                     'email'       => $parent->email,
                     'phone' => $parent->phone,
                 ] : null,
@@ -891,9 +894,53 @@ class StudentController extends Controller
             'parent' => [
                 'id' => (string) $newParent->_id,
                 'fullName' => trim($newParent->firstName . ' ' . $newParent->lastName),
+                'relationship' => $newParent->relationship,
                 'email' => $newParent->email,
                 'phone' => $newParent->phone,
             ],
         ]);
+    }
+
+    /**
+     * GET /api/students/{id}/report-card
+     */
+    public function getReportCard($id)
+    {
+        $student = Student::find($id);
+        if (!$student) {
+            return response()->json(['message' => 'Student not found.'], 404);
+        }
+
+        return response()->json(['data' => $student->reportCard ?? new \stdClass()]);
+    }
+
+    /**
+     * POST /api/students/{id}/report-card
+     * Trisem report card: T1/T2/T3, each with a midterm and finals grade per subject.
+     * Grades are admin-entered final marks; the frontend already sanitizes input to
+     * digits + a single decimal, so no numeric range validation is enforced here.
+     */
+    public function saveReportCard(Request $request, $id)
+    {
+        $student = Student::find($id);
+        if (!$student) {
+            return response()->json(['message' => 'Student not found.'], 404);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'grades' => 'required|array',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Please check the report card details and try again.',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $student->reportCard = $request->input('grades');
+        $student->save();
+
+        return response()->json(['message' => 'Report card saved.', 'data' => $student->reportCard]);
     }
 }

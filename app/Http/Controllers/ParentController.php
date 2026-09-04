@@ -41,6 +41,7 @@ class ParentController extends Controller
                 'id' => (string) $parent->_id,
                 'firstName' => $parent->firstName,
                 'lastName' => $parent->lastName,
+                'relationship' => $parent->relationship,
                 'email' => $parent->email,
                 'phone' => $parent->phone,
                 'studentCount' => count($parent->studentIds ?? []),
@@ -79,6 +80,7 @@ class ParentController extends Controller
             return [
                 'id' => (string) $p->_id,
                 'name' => trim($p->firstName . ' ' . $p->lastName),
+                'relationship' => $p->relationship,
                 'email' => $p->email,
                 'phone' => $p->phone,
                 'children' => $childrenByParent[(string) $p->_id] ?? [],
@@ -293,6 +295,7 @@ class ParentController extends Controller
                 'firstName'  => $parent->firstName,
                 'lastName'   => $parent->lastName,
                 'name'       => trim($parent->firstName . ' ' . $parent->lastName),
+                'relationship' => $parent->relationship,
                 'email'      => $parent->email,
                 'phone'      => $parent->phone,
                 'createdAt'  => $parent->created_at,
@@ -317,6 +320,7 @@ class ParentController extends Controller
         $validator = \Illuminate\Support\Facades\Validator::make($request->all(), [
             'firstName' => ['required', 'string', 'regex:/^[A-Za-z\s\-\'.]{2,50}$/'],
             'lastName'  => ['required', 'string', 'regex:/^[A-Za-z\s\-\'.]{2,50}$/'],
+            'relationship' => ['required', 'string', 'in:Mom,Dad,Guardian'],
             'email'     => ['required', 'email', function ($attribute, $value, $fail) use ($parent) {
                 $duplicate = ParentAccount::where('email', $value)
                     ->where('_id', '!=', (string) $parent->_id)
@@ -329,6 +333,8 @@ class ParentController extends Controller
         ], [
             'firstName.regex' => 'First name may only contain letters, spaces, hyphens, apostrophes, and periods (2–50 characters).',
             'lastName.regex'  => 'Last name may only contain letters, spaces, hyphens, apostrophes, and periods (2–50 characters).',
+            'relationship.required' => 'Please select the relationship to the student.',
+            'relationship.in'    => 'Please select a valid relationship (Mom, Dad, or Guardian).',
             'email.email'     => 'Please enter a valid email address.',
             'phone.regex'     => 'Phone number must start with 09 and be exactly 11 digits.',
         ]);
@@ -344,6 +350,7 @@ class ParentController extends Controller
 
         $parent->firstName = $data['firstName'];
         $parent->lastName  = $data['lastName'];
+        $parent->relationship = $data['relationship'];
         $parent->email     = $data['email'];
         $parent->phone     = $data['phone'];
         $parent->save();
@@ -360,6 +367,7 @@ class ParentController extends Controller
                 'id'        => (string) $parent->_id,
                 'firstName' => $parent->firstName,
                 'lastName'  => $parent->lastName,
+                'relationship'=> $parent->relationship,
                 'email'     => $parent->email,
                 'phone'     => $parent->phone,
             ],

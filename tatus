@@ -1,0 +1,15 @@
+[90m= [39m[34;4mApp\Models\EnrollmentApplication[39;24m {#8301
+    [34mstatus[39m: [32m"[39m[32mpending[39m[32m"[39m,
+    [34mdocuments[39m: [],
+    [34mstudent[39m: [32m"[39m[32m{[39m\"[32mfirstName[39m\"[32m:[39m\"[32mTest[39m\"[32m,[39m\"[32mlastName[39m\"[32m:[39m\"[32mApplicant[39m\"[32m}[39m[32m"[39m,
+    [34mparent[39m: [32m"[39m[32m{[39m\"[32mfullName[39m\"[32m:[39m\"[32mTest Parent[39m\"[32m}[39m[32m"[39m,
+    [34macademic[39m: [32m"[39m[32m{[39m\"[32mgradeLevel[39m\"[32m:[39m\"[32mGrade 1[39m\"[32m}[39m[32m"[39m,
+    [34mreferenceNumber[39m: [32m"[39m[32mRCAC-BJAJN2[39m[32m"[39m,
+    [34mupdated_at[39m: [34;4mMongoDB\BSON\UTCDateTime[39;24m {#8307
+      +"[1mmilliseconds[22m": [32m"[39m[32m1788597793738[39m[32m"[39m,
+    },
+    [34mcreated_at[39m: [34;4mMongoDB\BSON\UTCDateTime[39;24m {#8307},
+    [34mid[39m: [34;4mMongoDB\BSON\ObjectId[39;24m {#8311
+      +"[1moid[22m": [32m"[39m[32m6a9bd62149ca555a2d0491f2[39m[32m"[39m,
+    },
+  }

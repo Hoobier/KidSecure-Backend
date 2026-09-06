@@ -1,11 +1,12 @@
 <?php
-
+// app/Http/Controllers/DashboardController.php
 namespace App\Http\Controllers;
 
 use App\Models\Student;
 use App\Models\ParentAccount;
 use App\Models\AttendanceLog;
 use Carbon\Carbon;
+use App\Models\EnrollmentApplication;
 
 class DashboardController extends Controller
 {
@@ -67,12 +68,15 @@ class DashboardController extends Controller
             $attentionItems[] = ['type' => 'missing_parent', 'count' => $missingParentLink];
         }
 
+        $pendingGuestEnrollments = EnrollmentApplication::where('status', 'pending')->count();
+
         return response()->json([
             'totalStudents' => $totalStudents,
             'activeStudents' => $activeCount,
             'totalParentAccounts' => $totalParentAccounts,
             'missingRfid' => $missingRfid,
             'missingParentLink' => $missingParentLink,
+            'pendingGuestEnrollments' => $pendingGuestEnrollments,
             'todayAttendance' => [
                 'hasData' => $hasData,
                 'present' => $present,

@@ -14,6 +14,7 @@ class DocumentUploadService
     public const ALLOWED_TYPES = [
         'birth_certificate',
         'id_photo',
+        'id_photo_1x1',
         'form_138',
         'good_moral',
     ];

@@ -1,0 +1,53 @@
+[90m= [39m[
+    [34m"[39m[34moutcome[39m[34m"[39m => [32m"[39m[32msuccess[39m[32m"[39m,
+    [34m"[39m[34mstudentId[39m[34m"[39m => [32m"[39m[32m2026-0020[39m[32m"[39m,
+    [34m"[39m[34mparentLinkedExisting[39m[34m"[39m => [36mfalse[39m,
+    [34m"[39m[34mstudent[39m[34m"[39m => [34;4mApp\Models\Student[39;24m {#8929
+      [34mstudentId[39m: [32m"[39m[32m2026-0020[39m[32m"[39m,
+      [34mfirstName[39m: [32m"[39m[32mZzz_Test[39m[32m"[39m,
+      [34mmiddleName[39m: [32m""[39m,
+      [34mlastName[39m: [32m"[39m[32mNoMatch[39m[32m"[39m,
+      [34mdateOfBirth[39m: [32m"[39m[32m2018-01-01[39m[32m"[39m,
+      [34mgradeLevel[39m: [32m"[39m[32mGrade 1[39m[32m"[39m,
+      [34msection[39m: [32m"[39m[32mA[39m[32m"[39m,
+      [34mrfidTag[39m: [36mnull[39m,
+      [34mparentId[39m: [32m"[39m[32m6a9c1fb2374e63327e0be0b2[39m[32m"[39m,
+      [34menrollmentStatus[39m: [32m"[39m[32mactive[39m[32m"[39m,
+      [34mdateEnrolled[39m: [34;4mIlluminate\Support\Carbon @1788616628[39;24m {#8905
+        [34mdate[39m: [36m2026-09-05 21:57:08.574074 Asia/Manila (+08:00)[39m,
+      },
+      [34mdocuments[39m: [],
+      [34misTransferee[39m: [36mfalse[39m,
+      [34mpreviousSchool[39m: [36mnull[39m,
+      [34mupdated_at[39m: [34;4mMongoDB\BSON\UTCDateTime[39;24m {#8088
+        +"[1mmilliseconds[22m": [32m"[39m[32m1788616628574[39m[32m"[39m,
+      },
+      [34mcreated_at[39m: [34;4mMongoDB\BSON\UTCDateTime[39;24m {#8088},
+      [34mid[39m: [34;4mMongoDB\BSON\ObjectId[39;24m {#8923
+        +"[1moid[22m": [32m"[39m[32m6a9c1fb4374e63327e0be0b3[39m[32m"[39m,
+      },
+    },
+    [34m"[39m[34mparent[39m[34m"[39m => [34;4mApp\Models\ParentAccount[39;24m {#8825
+      [34mfirstName[39m: [32m"[39m[32mZzz_Parent[39m[32m"[39m,
+      [34mlastName[39m: [32m"[39m[32mTest[39m[32m"[39m,
+      [34mrelationship[39m: [32m"[39m[32mMom[39m[32m"[39m,
+      [34memail[39m: [32m"[39m[32mzzztest@example.com[39m[32m"[39m,
+      [34mphone[39m: [32m"[39m[32m09171234567[39m[32m"[39m,
+      [34mfirebaseUid[39m: [32m"[39m[32muYWc14sDDnhk4SjXoR7Q9c0wSVC2[39m[32m"[39m,
+      [34mstudentIds[39m: [
+        [32m"[39m[32m6a9c1fb4374e63327e0be0b3[39m[32m"[39m,
+      ],
+      [34maccountCreatedAt[39m: [34;4mIlluminate\Support\Carbon @1788616626[39;24m {#8827
+        [34mdate[39m: [36m2026-09-05 21:57:06.906007 Asia/Manila (+08:00)[39m,
+      },
+      [34mupdated_at[39m: [34;4mMongoDB\BSON\UTCDateTime[39;24m {#8906
+        +"[1mmilliseconds[22m": [32m"[39m[32m1788616628621[39m[32m"[39m,
+      },
+      [34mcreated_at[39m: [34;4mMongoDB\BSON\UTCDateTime[39;24m {#8826
+        +"[1mmilliseconds[22m": [32m"[39m[32m1788616626906[39m[32m"[39m,
+      },
+      [34mid[39m: [34;4mMongoDB\BSON\ObjectId[39;24m {#8822
+        +"[1moid[22m": [32m"[39m[32m6a9c1fb2374e63327e0be0b2[39m[32m"[39m,
+      },
+    },
+  ]

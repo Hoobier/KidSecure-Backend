@@ -1,0 +1,33 @@
+[90m= [39m[34;4mApp\Models\EnrollmentApplication[39;24m {#7442
+    [34mstatus[39m: [32m"[39m[32mpending[39m[32m"[39m,
+    [34mdocuments[39m: [],
+    [34mstudent[39m: [
+      [34m"[39m[34mfirstName[39m[34m"[39m => [32m"[39m[32mGuest[39m[32m"[39m,
+      [34m"[39m[34mlastName[39m[34m"[39m => [32m"[39m[32mTestchild[39m[32m"[39m,
+      [34m"[39m[34mbirthDate[39m[34m"[39m => [32m"[39m[32m2019-05-05[39m[32m"[39m,
+      [34m"[39m[34mgender[39m[34m"[39m => [32m"[39m[32mMale[39m[32m"[39m,
+      [34m"[39m[34maddress[39m[34m"[39m => [32m"[39m[32m123 Test St[39m[32m"[39m,
+      [34m"[39m[34mphone[39m[34m"[39m => [32m"[39m[32m09171234567[39m[32m"[39m,
+      [34m"[39m[34memail[39m[34m"[39m => [32m"[39m[32mguestchild_test@example.com[39m[32m"[39m,
+    ],
+    [34mparent[39m: [
+      [34m"[39m[34mfullName[39m[34m"[39m => [32m"[39m[32mMaria Santos[39m[32m"[39m,
+      [34m"[39m[34mrelationship[39m[34m"[39m => [32m"[39m[32mMom[39m[32m"[39m,
+      [34m"[39m[34mphone[39m[34m"[39m => [32m"[39m[32m09179876543[39m[32m"[39m,
+      [34m"[39m[34memail[39m[34m"[39m => [32m"[39m[32mmariasantos_test@example.com[39m[32m"[39m,
+    ],
+    [34macademic[39m: [
+      [34m"[39m[34mgradeLevel[39m[34m"[39m => [32m"[39m[32mGrade 1[39m[32m"[39m,
+      [34m"[39m[34mpreviousSchool[39m[34m"[39m => [32m""[39m,
+    ],
+    [34mreferenceNumber[39m: [32m"[39m[32mRCAC-Z9ACPU[39m[32m"[39m,
+    [34mupdated_at[39m: [34;4mIlluminate\Support\Carbon @1788617226[39;24m {#7742
+      [34mdate[39m: [36m2026-09-05 22:07:06.934 Asia/Manila (+08:00)[39m,
+    },
+    [34mcreated_at[39m: [34;4mIlluminate\Support\Carbon @1788617226[39;24m {#7601
+      [34mdate[39m: [36m2026-09-05 22:07:06.934 Asia/Manila (+08:00)[39m,
+    },
+    [34mid[39m: [34;4mMongoDB\BSON\ObjectId[39;24m {#7600
+      +"[1moid[22m": [32m"[39m[32m6a9c220ac663db61a7096f32[39m[32m"[39m,
+    },
+  }

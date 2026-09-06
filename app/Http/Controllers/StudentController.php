@@ -13,6 +13,11 @@ use Illuminate\Support\Facades\Mail;
 
 class StudentController extends Controller
 {
+
+    public function __construct(protected \App\Services\EnrollmentService $enrollmentService)
+    {
+    }
+
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
@@ -25,9 +30,6 @@ class StudentController extends Controller
             }],
             'student.lastName' => ['required', 'string', 'regex:/^[A-Za-z\s\-\'.]{2,50}$/'],
             'student.dateOfBirth' => ['required', 'date', 'before:today', function ($attribute, $value, $fail) {
-                // Reject impossible calendar dates (e.g. Nov 31) that Carbon would
-                // otherwise silently roll over into the next valid date instead of
-                // rejecting outright.
                 $parts = explode('-', $value);
                 if (count($parts) === 3 && !checkdate((int) $parts[1], (int) $parts[2], (int) $parts[0])) {
                     $fail('Please enter a valid date.');
@@ -95,191 +97,48 @@ class StudentController extends Controller
             }
         }
 
-        // ---- Resolve "existing parent by email" ONCE, reused below in both the
-        //      student-duplicate same-parent check and the parent-mismatch check. ----
-        $existingByEmail = null;
-        if ($data['parent']['mode'] === 'new') {
-            $existingByEmail = ParentAccount::where('email', $data['parent']['email'])->first();
-        }
+        // ---- Delegate duplicate-checking, parent resolution, student creation,
+        // RFID conflict checking, RTDB mirroring, and credentials email to the
+        // shared service — same logic the guest-enrollment conversion uses. ----
+        $result = $this->enrollmentService->createStudentAndParent(
+            $data['student'],
+            $data['parent'],
+            [
+                'rfidTag' => $data['rfidTag'] ?? null,
+                'confirmDuplicate' => $confirmDuplicate,
+                'confirmParentMismatch' => $confirmParentMismatch,
+            ]
+        );
 
-        // ---- Step A0: Check for a likely-duplicate student (same name + DOB) ----
-        if (!$confirmDuplicate) {
-            $candidateMatch = Student::where('dateOfBirth', $data['student']['dateOfBirth'])
-                ->get()
-                ->first(function ($s) use ($data) {
-                    return strtolower(trim($s->firstName)) === strtolower(trim($data['student']['firstName']))
-                        && strtolower(trim($s->lastName)) === strtolower(trim($data['student']['lastName']));
-                });
-
-            if ($candidateMatch) {
-                $prospectiveParentId = null;
-
-                if ($data['parent']['mode'] === 'existing') {
-                    $prospectiveParentId = $data['parent']['existingParentId'];
-                } elseif ($existingByEmail) {
-                    $prospectiveParentId = (string) $existingByEmail->_id;
-                }
-
-                $samesParent = $prospectiveParentId && $prospectiveParentId === $candidateMatch->parentId;
-
+        switch ($result['outcome']) {
+            case 'duplicate_student':
                 return response()->json([
                     'duplicate' => true,
-                    'sameParent' => $samesParent,
-                    'message' => $samesParent
-                        ? 'This student appears to already be enrolled under the same parent/guardian account. This is very likely a duplicate entry.'
-                        : 'A student with this name and date of birth is already enrolled.',
-                    'existingStudent' => [
-                        'id' => (string) $candidateMatch->_id,
-                        'studentId' => $candidateMatch->studentId,
-                        'fullName' => trim($candidateMatch->firstName . ' ' . $candidateMatch->lastName),
-                        'gradeLevel' => $candidateMatch->gradeLevel,
-                        'section' => $candidateMatch->section,
-                        'status' => $candidateMatch->enrollmentStatus ?? 'active',
-                    ],
+                    'sameParent' => $result['sameParent'],
+                    'message' => $result['message'],
+                    'existingStudent' => $result['existingStudent'],
                 ], 409);
-            }
-        }
 
-        // ---- Step A0.5: Check for a likely-mistyped email (existing account, different name) ----
-        // Two parents never legitimately share one email, so an email match with a
-        // DIFFERENT name is far more likely a typo (wrong email entered) than a
-        // second guardian coincidentally reusing someone else's inbox. Block the
-        // silent auto-link and make staff confirm explicitly.
-        if ($data['parent']['mode'] === 'new' && $existingByEmail && !$confirmParentMismatch) {
-            $typedNameMatches =
-                strtolower(trim($existingByEmail->firstName)) === strtolower(trim($data['parent']['firstName']))
-                && strtolower(trim($existingByEmail->lastName)) === strtolower(trim($data['parent']['lastName']));
-
-            if (!$typedNameMatches) {
+            case 'duplicate_parent_email':
                 return response()->json([
                     'duplicateParent' => true,
-                    'message' => "This email is already registered under a different name ({$existingByEmail->firstName} {$existingByEmail->lastName}). Please confirm this is the same person, or check the email address for a typo.",
-                    'existingParent' => [
-                        'id' => (string) $existingByEmail->_id,
-                        'fullName' => trim($existingByEmail->firstName . ' ' . $existingByEmail->lastName),
-                        'email' => $existingByEmail->email,
-                        'phone' => $existingByEmail->phone,
-                    ],
+                    'message' => $result['message'],
+                    'existingParent' => $result['existingParent'],
                 ], 409);
-            }
-        }
 
-        // ---- Step A: Resolve the parent (link existing, auto-link by email, or create new) ----
-        $newParentPassword = null;
-        $parentLinkedExisting = false;
+            case 'parent_not_found':
+                return response()->json(['message' => $result['message']], 422);
 
-        if ($data['parent']['mode'] === 'existing') {
-            $parent = ParentAccount::find($data['parent']['existingParentId']);
+            case 'rfid_conflict':
+                return response()->json(['message' => $result['message']], 422);
 
-            if (!$parent) {
+            case 'success':
                 return response()->json([
-                    'message' => 'The selected parent/guardian could not be found. Please search again.',
-                ], 422);
-            }
-        } else {
-            if ($existingByEmail) {
-                $parent = $existingByEmail;
-                $parentLinkedExisting = true;
-            } else {
-                $parent = new ParentAccount();
-                $parent->firstName = $data['parent']['firstName'];
-                $parent->lastName = $data['parent']['lastName'];
-                $parent->relationship = $data['parent']['relationship'];
-                $parent->email = $data['parent']['email'];
-                $parent->phone = $data['parent']['phone'];
-                $parent->firebaseUid = null;
-                $parent->studentIds = [];
-                $parent->accountCreatedAt = now();
-                $parent->save();
-
-                $parentFullName = trim($parent->firstName . ' ' . $parent->lastName);
-
-                try {
-                    $firebase = app(FirebaseService::class);
-                    $result = $firebase->createParentAccount($parent->email, $parentFullName);
-
-                    $parent->firebaseUid = $result['uid'];
-                    $parent->save();
-
-                    if (!$result['reused']) {
-                        $newParentPassword = $result['password'];
-                    }
-                } catch (\Throwable $e) {
-                    \Log::error("Firebase account creation failed for {$parent->email}: " . $e->getMessage());
-                }
-            }
+                    'message' => 'Enrollment successful.',
+                    'studentId' => $result['studentId'],
+                    'parentLinkedExisting' => $result['parentLinkedExisting'],
+                ], 201);
         }
-
-        // ---- Step B: Generate the human-readable Student ID (YYYY-####) ----
-        $year = now()->year;
-        $countThisYear = Student::where('studentId', 'like', "{$year}-%")->count();
-        $nextNumber = str_pad($countThisYear + 1, 4, '0', STR_PAD_LEFT);
-        $studentId = "{$year}-{$nextNumber}";
-
-        if (!empty($data['rfidTag'])) {
-            $rfidConflict = Student::where('rfidTag', trim($data['rfidTag']))->first();
-
-            if ($rfidConflict) {
-                return response()->json([
-                    'message' => "This RFID tag is already assigned to {$rfidConflict->firstName} {$rfidConflict->lastName} ({$rfidConflict->studentId}).",
-                ], 422);
-            }
-        }
-
-        // ---- Step C: Create the student record ----
-        $student = new Student();
-        $student->studentId = $studentId;
-        $student->firstName = $data['student']['firstName'];
-        $student->middleName = $data['student']['middleName'] ?? '';
-        $student->lastName = $data['student']['lastName'];
-        $student->dateOfBirth = $data['student']['dateOfBirth'];
-        $student->gradeLevel = $data['student']['gradeLevel'];
-        $student->section = $data['student']['section'];
-        $student->rfidTag = $data['rfidTag'] ?: null;
-        $student->parentId = (string) $parent->_id;
-        $student->enrollmentStatus = 'active';
-        $student->dateEnrolled = now();
-        $student->documents = $data['documents'] ?? [];
-        $student->isTransferee = $data['student']['isTransferee'] ?? false;
-        $student->previousSchool = $data['student']['previousSchool'] ?? null;
-        $student->save();
-
-        // ---- Step D: Link the student to the parent's studentIds array ----
-        $existingIds = $parent->studentIds ?? [];
-        $existingIds[] = (string) $student->_id;
-        $parent->studentIds = $existingIds;
-        $parent->save();
-
-        // ---- Mirror the new student + parent to Firebase RTDB for the Flutter
-        // parent app. Wrapped in try/catch so a Firebase hiccup never blocks a
-        // successful enrollment — Mongo is still the source of truth. ----
-        try {
-            $realtime = app(FirebaseRealtimeService::class);
-            $realtime->mirrorStudent($student);
-            $realtime->mirrorParent($parent);
-        } catch (\Throwable $e) {
-            \Log::error("RTDB mirror failed after enrollment for student {$student->studentId}: " . $e->getMessage());
-        }
-
-        // ---- Step E: Send the parent their login credentials, if a new account was made ----
-        if ($newParentPassword) {
-            $studentFullName = trim($student->firstName . ' ' . $student->lastName);
-            $parentFullName = trim($parent->firstName . ' ' . $parent->lastName);
-
-            try {
-                Mail::to($parent->email)->send(
-                    new ParentAccountCreated($parentFullName, $parent->email, $newParentPassword, $studentFullName)
-                );
-            } catch (\Throwable $e) {
-                \Log::error("Failed to send parent credentials email to {$parent->email}: " . $e->getMessage());
-            }
-        }
-
-        return response()->json([
-            'message' => 'Enrollment successful.',
-            'studentId' => $studentId,
-            'parentLinkedExisting' => $parentLinkedExisting,
-        ], 201);
     }
 
     public function index(Request $request)

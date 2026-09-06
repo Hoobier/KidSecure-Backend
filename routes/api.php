@@ -13,6 +13,8 @@ use App\Http\Controllers\DeviceScanController;
 use App\Http\Controllers\EnrollmentRfidController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\EnrollmentDraftDocumentController;
+use App\Http\Controllers\EnrollmentApplicationController;
+use App\Http\Controllers\TermSettingController;
 
 
 Route::post('/login', [AuthController::class, 'login']);
@@ -25,6 +27,9 @@ Route::get('/user', function (Request $request) {
 Route::get('/ping', function () {
     return response()->json(['status' => 'awake']);
 });
+
+Route::post('/guest/enrollments', [EnrollmentApplicationController::class, 'store']);
+Route::get('/guest/enrollments/lookup', [EnrollmentApplicationController::class, 'lookup']);
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/students', [StudentController::class, 'index']);
@@ -55,6 +60,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/enrollment-drafts/{draftId}/documents/{type}', [EnrollmentDraftDocumentController::class, 'show']);
     Route::get('/students/{id}/report-card', [StudentController::class, 'getReportCard']);
     Route::post('/students/{id}/report-card', [StudentController::class, 'saveReportCard']);
+    Route::get('/guest/enrollments', [EnrollmentApplicationController::class, 'index']);
+    Route::get('/guest/enrollments/{id}', [EnrollmentApplicationController::class, 'show']);
+    Route::post('/guest/enrollments/{id}/convert-to-student', [EnrollmentApplicationController::class, 'convertToStudent']);
+    Route::post('/guest/enrollments/{id}/reject', [EnrollmentApplicationController::class, 'reject']);
+
+    Route::get('/term-settings', [TermSettingController::class, 'show']);
+    Route::patch('/term-settings', [TermSettingController::class, 'update']);
 });
 
 // Flutter parent app — Firebase ID token auth, completely separate

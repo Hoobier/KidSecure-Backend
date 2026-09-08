@@ -15,6 +15,7 @@ use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\EnrollmentDraftDocumentController;
 use App\Http\Controllers\EnrollmentApplicationController;
 use App\Http\Controllers\TermSettingController;
+use App\Http\Controllers\SchoolYearRolloverController;
 
 
 Route::post('/login', [AuthController::class, 'login']);

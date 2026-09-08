@@ -54,6 +54,7 @@ class EnrollmentApplicationController extends Controller
             'middleName' => $studentApp['middleName'] ?? '',
             'lastName' => $studentApp['lastName'] ?? '',
             'dateOfBirth' => $studentApp['birthDate'] ?? '',
+            'address' => $studentApp['address'] ?? '',
             'gradeLevel' => $academicApp['gradeLevel'] ?? '',
             // Guest form never asks for a section — the admin picks one
             // here at approval time.
@@ -121,10 +122,16 @@ class EnrollmentApplicationController extends Controller
      */
     private function flattenApplicationDocuments(array $documents): array
     {
+        $typeMap = [
+            'id_picture_1x1' => 'id_photo',
+        ];
+
         $flat = [];
         foreach ($documents as $type => $doc) {
             if (!is_array($doc)) continue;
-            $flat[] = array_merge(['type' => $type], $doc);
+            $mappedType = $typeMap[$type] ?? $type;
+            $doc['type'] = $mappedType; // overwrite AFTER, not merge before
+            $flat[] = $doc;
         }
         return $flat;
     }
@@ -148,20 +155,22 @@ class EnrollmentApplicationController extends Controller
     {
         $payload = json_decode($request->input('data', '{}'), true) ?: [];
 
+        $isTransferee = filter_var($payload['isTransferee'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        $documentsFollowUp = filter_var($payload['documentsFollowUp'] ?? false, FILTER_VALIDATE_BOOLEAN);
+
         $validator = Validator::make($payload, [
             'student.firstName' => 'required|string|max:50',
             'student.lastName' => 'required|string|max:50',
             'student.birthDate' => 'required|date',
             'student.gender' => 'required|string',
             'student.address' => 'required|string',
-            'student.phone' => ['required', 'regex:/^09\d{9}$/'],
-            'student.email' => 'required|email',
             'parent.firstName' => 'required|string|max:50',
             'parent.lastName' => 'required|string|max:50',
             'parent.relationship' => 'required|string',
             'parent.phone' => ['required', 'regex:/^09\d{9}$/'],
             'parent.email' => 'required|email',
             'academic.gradeLevel' => 'required|string',
+            'academic.previousSchool' => $isTransferee ? 'required|string' : 'nullable|string',
             'signature' => 'nullable|string',
         ]);
 
@@ -172,10 +181,34 @@ class EnrollmentApplicationController extends Controller
             ], 422);
         }
 
+        // Server-side mirror of the /guest form's document rule — this is a public,
+        // unauthenticated endpoint, so the frontend's checkbox logic alone isn't
+        // enough; enforce it here too, unless the parent opted to follow up later.
+        if (!$documentsFollowUp) {
+            $requiredDocs = ['birth_certificate', 'id_picture_1x1'];
+            if ($isTransferee) {
+                $requiredDocs[] = 'form_138'; // good_moral stays optional even for transferees
+            }
+
+            $missingDocs = array_values(array_filter(
+                $requiredDocs,
+                fn ($doc) => !$request->hasFile($doc)
+            ));
+
+            if (!empty($missingDocs)) {
+                return response()->json([
+                    'message' => 'Please upload all required documents, or check the box to follow up documents later.',
+                    'errors' => ['documents' => $missingDocs],
+                ], 422);
+            }
+        }
+
         $application = EnrollmentApplication::create([
             'student' => $payload['student'],
             'parent' => $payload['parent'],
             'academic' => $payload['academic'] ?? [],
+            'isTransferee' => $isTransferee,
+            'documentsFollowUp' => $documentsFollowUp,
             'signature' => $payload['signature'] ?? null,
             'documents' => [],
             'status' => 'pending',
@@ -185,7 +218,13 @@ class EnrollmentApplicationController extends Controller
         $uploadService = app(\App\Services\DocumentUploadService::class);
         $documents = [];
 
-        foreach (['birth_certificate', 'id_picture_1x1'] as $docType) {
+        $docTypes = ['birth_certificate', 'id_picture_1x1'];
+        if ($isTransferee) {
+            $docTypes[] = 'form_138';
+            $docTypes[] = 'good_moral';
+        }
+
+        foreach ($docTypes as $docType) {
             if ($request->hasFile($docType)) {
                 $documents[$docType] = $uploadService->upload(
                     $request->file($docType),
@@ -207,9 +246,6 @@ class EnrollmentApplicationController extends Controller
         ], 201);
     }
 
-    /**
-     * GET /api/guest/enrollments (Sanctum-guarded)
-     */
     /**
      * GET /api/guest/enrollments (Sanctum-guarded)
      * Query params: search, status, page, per_page
@@ -271,6 +307,8 @@ class EnrollmentApplicationController extends Controller
                 'files' => [
                     'birth_certificate' => !empty($docs['birth_certificate']),
                     'id_picture_1x1' => !empty($docs['id_picture_1x1']),
+                    'form_138' => !empty($docs['form_138']),
+                    'good_moral' => !empty($docs['good_moral']),
                 ],
                 'status' => $app->status,
                 'submitted_at' => $app->created_at,
@@ -390,5 +428,36 @@ class EnrollmentApplicationController extends Controller
         }
 
         return response()->json(['data' => $response]);
+    }
+
+    /**
+     * DELETE /api/guest/enrollments/{id} (Sanctum-guarded)
+     */
+    public function destroy($id)
+    {
+        $application = EnrollmentApplication::find($id);
+
+        if (!$application) {
+            return response()->json(['message' => 'Application not found.'], 404);
+        }
+
+        $uploadService = app(\App\Services\DocumentUploadService::class);
+
+        foreach ($application->documents ?? [] as $doc) {
+            if (is_array($doc) && !empty($doc['public_id'])) {
+                try {
+                    $uploadService->delete($doc['public_id'], $doc['resource_type'] ?? 'image');
+                } catch (\Throwable $e) {
+                    \Log::warning('Failed to delete Cloudinary asset during application delete', [
+                        'public_id' => $doc['public_id'],
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
+        }
+
+        $application->delete();
+
+        return response()->json(['message' => 'Application permanently deleted.']);
     }
 }

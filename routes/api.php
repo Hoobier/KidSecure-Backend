@@ -67,6 +67,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/term-settings', [TermSettingController::class, 'show']);
     Route::patch('/term-settings', [TermSettingController::class, 'update']);
+    Route::delete('/guest/enrollments/{id}', [EnrollmentApplicationController::class, 'destroy']);
+    Route::get('/school-year/rollover-preview', [SchoolYearRolloverController::class, 'preview']);
 });
 
 // Flutter parent app — Firebase ID token auth, completely separate

@@ -1,5 +1,5 @@
 <?php
-
+// app/Http/Controllers/DocumentController.php
 namespace App\Http\Controllers;
 
 use App\Models\Student;

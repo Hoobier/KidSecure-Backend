@@ -14,6 +14,8 @@ class EnrollmentApplication extends Model
         'student',
         'parent',
         'academic',
+        'isTransferee',
+        'documentsFollowUp',
         'signature',
         'documents',
         'status',

@@ -71,4 +71,18 @@ class DocumentUploadService
             ->signUrl(true)
             ->toUrl();
     }
+
+    /**
+     * Permanently removes a single uploaded document from Cloudinary.
+     * Used when an application is deleted, or when the school no longer
+     * wants a document retained.
+     */
+    public function delete(string $publicId, string $resourceType = 'image'): void
+    {
+        $this->cloudinary->uploadApi()->destroy($publicId, [
+            'resource_type' => $resourceType,
+            'type' => 'authenticated', // must match how it was uploaded, or Cloudinary won't find it
+        ]);
+
+    }
 }

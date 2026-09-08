@@ -41,6 +41,7 @@ class StudentController extends Controller
                     $fail('Student age must be between 3 and 15 years old.');
                 }
             }],
+            'student.address' => 'required|string|max:255',
             'student.gradeLevel' => 'required|string',
             'student.section' => 'required|string',
             'parent.mode' => 'required|in:new,existing',
@@ -343,6 +344,7 @@ class StudentController extends Controller
                 'middleName'  => $student->middleName,
                 'lastName'    => $student->lastName,
                 'dateOfBirth' => $student->dateOfBirth,
+                'address'     => $student->address ?? '',
                 'gradeLevel'  => $student->gradeLevel,
                 'section'     => $student->section,
                 'status'      => $student->enrollmentStatus ?? 'active',
@@ -530,6 +532,7 @@ class StudentController extends Controller
                     $fail('Student age must be between 3 and 15 years old.');
                 }
             }],
+            'address' => 'required|string|max:255',
             'gradeLevel' => 'required|string',
             'section' => 'required|string',
         ], [
@@ -551,6 +554,7 @@ class StudentController extends Controller
         $student->middleName  = $data['middleName'] ?? '';
         $student->lastName    = $data['lastName'];
         $student->dateOfBirth = $data['dateOfBirth'];
+        $student->address     = $data['address'] ?? '';
         $student->gradeLevel  = $data['gradeLevel'];
         $student->section     = $data['section'];
         $student->save();

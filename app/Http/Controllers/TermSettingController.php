@@ -1,5 +1,5 @@
 <?php
-
+// app/Http/Controllers/TermSettingController.php
 namespace App\Http\Controllers;
 
 use App\Models\TermSetting;

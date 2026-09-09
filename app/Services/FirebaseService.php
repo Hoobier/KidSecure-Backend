@@ -2,6 +2,7 @@
 //FirebaseService.php
 namespace App\Services;
 
+use Illuminate\Support\Facades\Log;
 use Kreait\Firebase\Contract\Auth as FirebaseAuth;
 use Kreait\Firebase\Exception\Auth\EmailExists;
 
@@ -48,5 +49,28 @@ class FirebaseService
             $this->auth->changeUserPassword($existing->uid, $tempPassword);
 
             return ['uid' => $existing->uid, 'password' => $tempPassword];
+    }
+
+    public function disableParentAccount(string $uid): void
+    {
+        $this->auth->disableUser($uid);
+    }
+
+    public function getParentAccountStatus(?string $uid): string
+    {
+        if (empty($uid)) {
+            return 'unknown';
+        }
+
+        try {
+            return $this->auth->getUser($uid)->disabled ? 'frozen' : 'active';
+        } catch (\Throwable $e) {
+            Log::warning('Firebase parent account status lookup failed.', [
+                'uid' => $uid,
+                'exception' => $e,
+            ]);
+
+            return 'unknown';
+        }
     }
 }

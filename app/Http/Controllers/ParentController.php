@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\ParentAccount;
 use App\Models\Student;
 use App\Services\FirebaseRealtimeService;
+use App\Services\FirebaseService;
 use Illuminate\Http\Request;
 
 class ParentController extends Controller
@@ -63,8 +64,17 @@ class ParentController extends Controller
     public function index(Request $request)
     {
         $parents = ParentAccount::all();
-        $students = Student::whereIn('enrollmentStatus', ['active', 'inactive', 'deleted'])
+        $students = Student::whereIn('enrollmentStatus', ['active', 'inactive', 'deleted', 'graduated'])
             ->get(['studentId', 'firstName', 'lastName', 'parentId', 'enrollmentStatus']);
+
+        try {
+            $firebase = app(FirebaseService::class);
+        } catch (\Throwable $e) {
+            \Log::warning('Firebase parent account status service could not be resolved.', [
+                'exception' => $e,
+            ]);
+            $firebase = null;
+        }
 
         $childrenByParent = [];
         foreach ($students as $s) {
@@ -76,7 +86,7 @@ class ParentController extends Controller
             ];
         }
 
-        $result = $parents->map(function ($p) use ($childrenByParent) {
+        $result = $parents->map(function ($p) use ($childrenByParent, $firebase) {
             return [
                 'id' => (string) $p->_id,
                 'name' => trim($p->firstName . ' ' . $p->lastName),
@@ -84,6 +94,7 @@ class ParentController extends Controller
                 'email' => $p->email,
                 'phone' => $p->phone,
                 'children' => $childrenByParent[(string) $p->_id] ?? [],
+                'accountStatus' => $firebase?->getParentAccountStatus($p->firebaseUid) ?? 'unknown',
             ];
         });
 
@@ -164,10 +175,19 @@ class ParentController extends Controller
         $firebaseOutcome = null;
 
         try {
-            $firebase = app(\App\Services\FirebaseService::class);
+            $firebase = app(FirebaseService::class);
 
             try {
-                $existing = $firebase->getAuth()->getUserByEmail($parent->email);
+                $existing = !empty($parent->firebaseUid)
+                    ? $firebase->getAuth()->getUser($parent->firebaseUid)
+                    : $firebase->getAuth()->getUserByEmail($parent->email);
+
+                if ($existing->disabled) {
+                    return response()->json([
+                        'message' => 'This parent account is frozen because all linked students have left the school. Credentials cannot be resent.',
+                    ], 422);
+                }
+
                 $tempPassword = substr(str_shuffle('ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789'), 0, 10);
                 $firebase->getAuth()->changeUserPassword($existing->uid, $tempPassword);
                 $firebaseOutcome = ['uid' => $existing->uid, 'password' => $tempPassword];
@@ -270,7 +290,16 @@ class ParentController extends Controller
             return response()->json(['message' => 'Parent account not found.'], 404);
         }
 
-        $students = Student::whereIn('enrollmentStatus', ['active', 'inactive', 'deleted'])
+        try {
+            $firebase = app(FirebaseService::class);
+        } catch (\Throwable $e) {
+            \Log::warning('Firebase parent account status service could not be resolved.', [
+                'exception' => $e,
+            ]);
+            $firebase = null;
+        }
+
+        $students = Student::whereIn('enrollmentStatus', ['active', 'inactive', 'deleted', 'graduated'])
             ->where('parentId', (string) $parent->_id)
             ->orderBy('created_at', 'desc')
             ->get(['studentId', 'firstName', 'lastName', 'gradeLevel', 'section', 'enrollmentStatus', 'created_at']);
@@ -298,6 +327,7 @@ class ParentController extends Controller
                 'relationship' => $parent->relationship,
                 'email'      => $parent->email,
                 'phone'      => $parent->phone,
+                'accountStatus' => $firebase?->getParentAccountStatus($parent->firebaseUid) ?? 'unknown',
                 'createdAt'  => $parent->created_at,
                 'children'   => $children,
             ],

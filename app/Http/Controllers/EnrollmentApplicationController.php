@@ -431,6 +431,38 @@ class EnrollmentApplicationController extends Controller
     }
 
     /**
+     * DELETE /api/guest/enrollments/rejected (Sanctum-guarded)
+     */
+    public function destroyRejected()
+    {
+        try {
+            $applications = EnrollmentApplication::where('status', 'rejected')->get();
+            $deletedCount = 0;
+
+            foreach ($applications as $application) {
+                $this->deleteApplicationDocuments($application);
+                $application->delete();
+                $deletedCount++;
+            }
+
+            return response()->json([
+                'message' => $deletedCount > 0
+                    ? 'Rejected applications deleted.'
+                    : 'No rejected applications found.',
+                'deletedCount' => $deletedCount,
+            ]);
+        } catch (\Throwable $e) {
+            \Log::error('Failed to bulk delete rejected guest applications.', [
+                'exception' => $e,
+            ]);
+
+            return response()->json([
+                'message' => 'Rejected applications could not be deleted. Please try again.',
+            ], 500);
+        }
+    }
+
+    /**
      * DELETE /api/guest/enrollments/{id} (Sanctum-guarded)
      */
     public function destroy($id)
@@ -441,6 +473,15 @@ class EnrollmentApplicationController extends Controller
             return response()->json(['message' => 'Application not found.'], 404);
         }
 
+        $this->deleteApplicationDocuments($application);
+
+        $application->delete();
+
+        return response()->json(['message' => 'Application permanently deleted.']);
+    }
+
+    private function deleteApplicationDocuments(EnrollmentApplication $application): void
+    {
         $uploadService = app(\App\Services\DocumentUploadService::class);
 
         foreach ($application->documents ?? [] as $doc) {
@@ -455,9 +496,5 @@ class EnrollmentApplicationController extends Controller
                 }
             }
         }
-
-        $application->delete();
-
-        return response()->json(['message' => 'Application permanently deleted.']);
     }
 }

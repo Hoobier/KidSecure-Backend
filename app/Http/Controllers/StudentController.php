@@ -47,9 +47,13 @@ class StudentController extends Controller
             'parent.mode' => 'required|in:new,existing',
             'rfidTag' => 'nullable|string',
 
-            'student.isTransferee' => 'nullable|boolean',
-            'student.previousSchool' => ['nullable', 'string', 'max:150', function ($attribute, $value, $fail) use ($request) {
-                if ($request->input('student.isTransferee') && empty(trim((string) $value))) {
+            'student.isTransferee' => ['nullable', 'boolean', function ($attribute, $value, $fail) use ($request) {
+                if (filter_var($value, FILTER_VALIDATE_BOOLEAN) && in_array($request->input('student.gradeLevel'), ['Kindergarten', 'Grade 1'], true)) {
+                    $fail('Kindergarten and Grade 1 students cannot be transferees.');
+                }
+            }],
+            'student.previousSchool' => ['nullable', 'required_if:student.isTransferee,true', 'string', 'max:150', function ($attribute, $value, $fail) use ($request) {
+                if (filter_var($request->input('student.isTransferee'), FILTER_VALIDATE_BOOLEAN) && empty(trim((string) $value))) {
                     $fail('Please enter the name of the student\'s previous school.');
                 }
             }],
@@ -151,6 +155,7 @@ class StudentController extends Controller
         $status  = $request->query('status');
         $rfidStatus = $request->query('rfid_status');
         $parentStatus = $request->query('parent_status');
+        $transferee = $request->query('transferee');
         $sortBy  = in_array($request->query('sort_by', $request->query('sort')), ['name', 'studentId'], true)
             ? $request->query('sort_by', $request->query('sort'))
             : null;
@@ -218,6 +223,14 @@ class StudentController extends Controller
             });
         } elseif ($parentStatus === 'assigned') {
             $query->whereNotNull('parentId')->where('parentId', '!=', '');
+        }
+
+        if ($transferee === 'true') {
+            $query->where('isTransferee', true);
+        } elseif ($transferee === 'false') {
+            $query->where(function ($q) {
+                $q->where('isTransferee', false)->orWhereNull('isTransferee');
+            });
         }
 
         if ($sortBy) {
@@ -300,6 +313,8 @@ class StudentController extends Controller
                 'hasRfidTag'    => !empty($student->rfidTag),
                 'hasParentLink' => !empty($student->parentId),
                 'status'        => $student->enrollmentStatus ?? 'active',
+                'isTransferee'  => $student->isTransferee ?? false,
+                'previousSchool' => $student->previousSchool ?? null,
             ];
         });
 
@@ -535,6 +550,20 @@ class StudentController extends Controller
             'address' => 'required|string|max:255',
             'gradeLevel' => 'required|string',
             'section' => 'required|string',
+            'isTransferee' => ['nullable', 'boolean', function ($attribute, $value, $fail) use ($request) {
+                if (filter_var($value, FILTER_VALIDATE_BOOLEAN) && in_array($request->input('gradeLevel'), ['Kindergarten', 'Grade 1'], true)) {
+                    $fail('Kindergarten and Grade 1 students cannot be transferees.');
+                }
+            }],
+            'previousSchool' => ['nullable', 'required_if:isTransferee,true', 'string', 'max:150', function ($attribute, $value, $fail) use ($request, $student) {
+                $isTransferee = array_key_exists('isTransferee', $request->all())
+                    ? filter_var($request->input('isTransferee'), FILTER_VALIDATE_BOOLEAN)
+                    : ($student->isTransferee ?? false);
+
+                if ($isTransferee && empty(trim((string) $value))) {
+                    $fail('Please enter the name of the student\'s previous school.');
+                }
+            }],
         ], [
             'firstName.regex' => 'First name may only contain letters, spaces, hyphens, apostrophes, and periods (2–50 characters).',
             'lastName.regex' => 'Last name may only contain letters, spaces, hyphens, apostrophes, and periods (2–50 characters).',
@@ -557,6 +586,16 @@ class StudentController extends Controller
         $student->address     = $data['address'] ?? '';
         $student->gradeLevel  = $data['gradeLevel'];
         $student->section     = $data['section'];
+
+        if (array_key_exists('isTransferee', $data)) {
+            $student->isTransferee = filter_var($data['isTransferee'], FILTER_VALIDATE_BOOLEAN);
+            if (!$student->isTransferee) {
+                $student->previousSchool = null;
+            }
+        }
+        if (array_key_exists('previousSchool', $data)) {
+            $student->previousSchool = $data['previousSchool'];
+        }
         $student->save();
 
         try {

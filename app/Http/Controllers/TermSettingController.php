@@ -10,37 +10,60 @@ class TermSettingController extends Controller
 {
     public function show()
     {
-        $term = TermSetting::current();
+        $termSetting = TermSetting::current();
 
         return response()->json([
-            'data' => [
-                'currentTermStartDate' => $term->currentTermStartDate?->format('Y-m-d'),
-            ],
+            'data' => $this->formatResponse($termSetting),
         ]);
     }
 
     public function update(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'currentTermStartDate' => 'required|date',
+            'schoolYearLabel' => 'sometimes|string|max:20',
+            'terms' => 'sometimes|array|size:3',
+            'terms.*.termNumber' => 'required_with:terms|integer|between:1,3',
+            'terms.*.startDate' => 'nullable|date',
+            'terms.*.endDate' => 'nullable|date',
         ]);
 
         if ($validator->fails()) {
             return response()->json([
-                'message' => 'Please provide a valid date.',
+                'message' => 'Please check the dates entered and try again.',
                 'errors' => $validator->errors(),
             ], 422);
         }
 
-        $term = TermSetting::current();
-        $term->currentTermStartDate = $request->input('currentTermStartDate');
-        $term->save();
+        if ($request->has('terms')) {
+            foreach ($request->input('terms') as $term) {
+                if (!empty($term['startDate']) && !empty($term['endDate'])
+                    && $term['endDate'] < $term['startDate']) {
+                    return response()->json([
+                        'message' => "Term {$term['termNumber']}'s end date can't be before its start date.",
+                    ], 422);
+                }
+            }
+        }
+
+        $termSetting = TermSetting::current();
+        $termSetting->fill($request->only(['schoolYearLabel', 'terms']));
+        $termSetting->save();
 
         return response()->json([
-            'message' => 'Term start date updated.',
-            'data' => [
-                'currentTermStartDate' => $term->currentTermStartDate->format('Y-m-d'),
-            ],
+            'message' => 'School term settings updated.',
+            'data' => $this->formatResponse($termSetting),
         ]);
+    }
+
+    private function formatResponse(TermSetting $termSetting): array
+    {
+        return [
+            'schoolYearLabel' => $termSetting->schoolYearLabel,
+            'terms' => $termSetting->terms,
+            'activeTermNumber' => $termSetting->activeTermNumber(),
+            'rolloverStatus' => $termSetting->rolloverStatus,
+            'rolloverCompletedAt' => $termSetting->rolloverCompletedAt?->format('Y-m-d'),
+            'needsRollover' => $termSetting->needsRollover(),
+        ];
     }
 }

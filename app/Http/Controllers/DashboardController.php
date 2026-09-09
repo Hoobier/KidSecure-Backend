@@ -7,6 +7,8 @@ use App\Models\ParentAccount;
 use App\Models\AttendanceLog;
 use Carbon\Carbon;
 use App\Models\EnrollmentApplication;
+use App\Services\FirebaseService;
+use Illuminate\Support\Facades\Log;
 
 class DashboardController extends Controller
 {
@@ -69,6 +71,53 @@ class DashboardController extends Controller
         }
 
         $pendingGuestEnrollments = EnrollmentApplication::where('status', 'pending')->count();
+        $rejectedGuestEnrollments = EnrollmentApplication::where('status', 'rejected')->count();
+        $rejectedApplications = EnrollmentApplication::where('status', 'rejected')
+            ->orderBy('updated_at', 'desc')
+            ->orderBy('created_at', 'desc')
+            ->limit(5)
+            ->get()
+            ->map(function ($application) {
+                $student = $application->student ?? [];
+                $parent = $application->parent ?? [];
+
+                return [
+                    'id' => (string) $application->_id,
+                    'studentName' => trim(($student['firstName'] ?? '') . ' ' . ($student['lastName'] ?? '')),
+                    'parentName' => trim(($parent['firstName'] ?? '') . ' ' . ($parent['lastName'] ?? '')),
+                    'submittedAt' => $application->created_at?->toISOString(),
+                    'rejectedAt' => $application->updated_at?->toISOString(),
+                    'rejectionReason' => $application->rejectionReason ?? null,
+                ];
+            })
+            ->values()
+            ->all();
+
+        if ($pendingGuestEnrollments > 0) {
+            $attentionItems[] = ['type' => 'pending_online_enrollment', 'count' => $pendingGuestEnrollments];
+        }
+
+        if ($rejectedGuestEnrollments > 0) {
+            $attentionItems[] = ['type' => 'rejected_online_enrollment', 'count' => $rejectedGuestEnrollments];
+        }
+
+        $frozenParentAccounts = 0;
+        try {
+            $firebase = app(FirebaseService::class);
+            foreach (ParentAccount::all() as $parent) {
+                if ($firebase->getParentAccountStatus($parent->firebaseUid) === 'frozen') {
+                    $frozenParentAccounts++;
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Firebase parent account status service could not be resolved for dashboard.', [
+                'exception' => $e,
+            ]);
+        }
+
+        if ($frozenParentAccounts > 0) {
+            $attentionItems[] = ['type' => 'frozen_parent_accounts', 'count' => $frozenParentAccounts];
+        }
 
         return response()->json([
             'totalStudents' => $totalStudents,
@@ -77,6 +126,8 @@ class DashboardController extends Controller
             'missingRfid' => $missingRfid,
             'missingParentLink' => $missingParentLink,
             'pendingGuestEnrollments' => $pendingGuestEnrollments,
+            'rejectedGuestEnrollments' => $rejectedGuestEnrollments,
+            'rejectedApplications' => $rejectedApplications,
             'todayAttendance' => [
                 'hasData' => $hasData,
                 'present' => $present,

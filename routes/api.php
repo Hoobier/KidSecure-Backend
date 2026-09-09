@@ -62,6 +62,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/students/{id}/report-card', [StudentController::class, 'getReportCard']);
     Route::post('/students/{id}/report-card', [StudentController::class, 'saveReportCard']);
     Route::get('/guest/enrollments', [EnrollmentApplicationController::class, 'index']);
+    Route::delete('/guest/enrollments/rejected', [EnrollmentApplicationController::class, 'destroyRejected']);
     Route::get('/guest/enrollments/{id}', [EnrollmentApplicationController::class, 'show']);
     Route::post('/guest/enrollments/{id}/convert-to-student', [EnrollmentApplicationController::class, 'convertToStudent']);
     Route::post('/guest/enrollments/{id}/reject', [EnrollmentApplicationController::class, 'reject']);
@@ -70,6 +71,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::patch('/term-settings', [TermSettingController::class, 'update']);
     Route::delete('/guest/enrollments/{id}', [EnrollmentApplicationController::class, 'destroy']);
     Route::get('/school-year/rollover-preview', [SchoolYearRolloverController::class, 'preview']);
+    Route::post('/school-year/rollover-commit', [SchoolYearRolloverController::class, 'commit']);
 });
 
 // Flutter parent app — Firebase ID token auth, completely separate

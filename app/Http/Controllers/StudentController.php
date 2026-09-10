@@ -8,7 +8,9 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use App\Services\FirebaseService;
 use App\Services\FirebaseRealtimeService;
+use App\Models\RfidCard;
 use App\Mail\ParentAccountCreated;
+use App\Services\GradeLevelService;
 use Illuminate\Support\Facades\Mail;
 
 class StudentController extends Controller
@@ -42,14 +44,24 @@ class StudentController extends Controller
                 }
             }],
             'student.address' => 'required|string|max:255',
-            'student.gradeLevel' => 'required|string',
+            'student.gradeLevel' => ['required', 'string', function ($attribute, $value, $fail) {
+                if (!GradeLevelService::isValidGrade($value)) {
+                    $fail('Please select a valid grade level.');
+                }
+            }],
             'student.section' => 'required|string',
             'parent.mode' => 'required|in:new,existing',
             'rfidTag' => 'nullable|string',
 
             'student.isTransferee' => ['nullable', 'boolean', function ($attribute, $value, $fail) use ($request) {
-                if (filter_var($value, FILTER_VALIDATE_BOOLEAN) && in_array($request->input('student.gradeLevel'), ['Kindergarten', 'Grade 1'], true)) {
-                    $fail('Kindergarten and Grade 1 students cannot be transferees.');
+                $gradeLevel = $request->input('student.gradeLevel');
+                $isTransferee = filter_var($value, FILTER_VALIDATE_BOOLEAN);
+
+                if (GradeLevelService::isValidGrade($gradeLevel)
+                    && !GradeLevelService::isEnrollmentTypeAllowed($gradeLevel, $isTransferee)) {
+                    $fail($isTransferee
+                        ? 'Nursery and Grade 1 students must be enrolled as Regular students.'
+                        : 'Kindergarten, Preparatory, and Grades 2 to 6 students must be enrolled as Transferees.');
                 }
             }],
             'student.previousSchool' => ['nullable', 'required_if:student.isTransferee,true', 'string', 'max:150', function ($attribute, $value, $fail) use ($request) {
@@ -548,11 +560,32 @@ class StudentController extends Controller
                 }
             }],
             'address' => 'required|string|max:255',
-            'gradeLevel' => 'required|string',
+            'gradeLevel' => ['required', 'string', function ($attribute, $value, $fail) use ($request, $student) {
+                if (!GradeLevelService::isValidGrade($value)) {
+                    $fail('Please select a valid grade level.');
+                    return;
+                }
+
+                $isTransferee = array_key_exists('isTransferee', $request->all())
+                    ? filter_var($request->input('isTransferee'), FILTER_VALIDATE_BOOLEAN)
+                    : ($student->isTransferee ?? false);
+
+                if (!GradeLevelService::isEnrollmentTypeAllowed($value, $isTransferee)) {
+                    $fail($isTransferee
+                        ? 'Nursery and Grade 1 students must be enrolled as Regular students.'
+                        : 'Kindergarten, Preparatory, and Grades 2 to 6 students must be enrolled as Transferees.');
+                }
+            }],
             'section' => 'required|string',
             'isTransferee' => ['nullable', 'boolean', function ($attribute, $value, $fail) use ($request) {
-                if (filter_var($value, FILTER_VALIDATE_BOOLEAN) && in_array($request->input('gradeLevel'), ['Kindergarten', 'Grade 1'], true)) {
-                    $fail('Kindergarten and Grade 1 students cannot be transferees.');
+                $gradeLevel = $request->input('gradeLevel');
+                $isTransferee = filter_var($value, FILTER_VALIDATE_BOOLEAN);
+
+                if (GradeLevelService::isValidGrade($gradeLevel)
+                    && !GradeLevelService::isEnrollmentTypeAllowed($gradeLevel, $isTransferee)) {
+                    $fail($isTransferee
+                        ? 'Nursery and Grade 1 students must be enrolled as Regular students.'
+                        : 'Kindergarten, Preparatory, and Grades 2 to 6 students must be enrolled as Transferees.');
                 }
             }],
             'previousSchool' => ['nullable', 'required_if:isTransferee,true', 'string', 'max:150', function ($attribute, $value, $fail) use ($request, $student) {
@@ -623,6 +656,79 @@ class StudentController extends Controller
         }
 
         return response()->json(['message' => 'Student reactivated.']);
+    }
+
+    public function reEnroll(Request $request, $id)
+    {
+        $student = Student::find($id);
+
+        if (!$student) {
+            return response()->json(['message' => 'Student not found.'], 404);
+        }
+
+        if ($student->enrollmentStatus !== 'transferred_out') {
+            return response()->json([
+                'message' => 'This student is not marked as transferred out.',
+            ], 422);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'gradeLevel' => 'required|string',
+            'section' => 'nullable|string',
+            'previousSchool' => 'required|string|max:255',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Something is wrong with the submitted student details.',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        if (empty($student->parentId)) {
+            return response()->json([
+                'message' => 'This student has no parent account linked. Please assign a parent before re-enrolling this student.',
+            ], 422);
+        }
+
+        $student->gradeLevel = $request->input('gradeLevel');
+        $student->section = $request->input('section') ?? $student->section;
+        $student->previousSchool = $request->input('previousSchool');
+        $student->isTransferee = true;
+        $student->enrollmentStatus = 'active';
+        $student->save();
+
+        if (!empty($student->rfidTag)) {
+            RfidCard::where('tagId', $student->rfidTag)->update([
+                'status' => 'active',
+                'deactivatedDate' => null,
+            ]);
+        }
+
+        try {
+            $parentAccount = ParentAccount::find($student->parentId);
+
+            if ($parentAccount && !empty($parentAccount->firebaseUid)) {
+                $firebase = app(FirebaseService::class);
+                $status = $firebase->getParentAccountStatus($parentAccount->firebaseUid);
+
+                if ($status === 'frozen') {
+                    $firebase->enableParentAccount($parentAccount->firebaseUid);
+                }
+            }
+        } catch (\Throwable $e) {
+            \Log::error("Failed to reactivate Firebase parent account for student {$student->studentId}: " . $e->getMessage());
+        }
+
+        try {
+            app(FirebaseRealtimeService::class)->mirrorStudent($student);
+        } catch (\Throwable $e) {
+            \Log::error("RTDB mirror failed after re-enrollment for student {$student->studentId}: " . $e->getMessage());
+        }
+
+        return response()->json([
+            'message' => 'Student has been re-enrolled successfully.',
+        ]);
     }
 
     /**

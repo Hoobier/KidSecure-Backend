@@ -193,7 +193,7 @@ class AttendanceController extends Controller
      */
     private function sortGradeLevels($gradeLevel)
     {
-        $order = ['Kinder', 'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6'];
+        $order = ['Nursery', 'Kindergarten', 'Preparatory', 'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6'];
 
         return $gradeLevel->sortBy(function ($lvl) use ($order) {
             $idx = array_search($lvl, $order);

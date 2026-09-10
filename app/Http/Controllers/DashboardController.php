@@ -7,6 +7,7 @@ use App\Models\ParentAccount;
 use App\Models\AttendanceLog;
 use Carbon\Carbon;
 use App\Models\EnrollmentApplication;
+use App\Models\AcademicRecord;
 use App\Services\FirebaseService;
 use Illuminate\Support\Facades\Log;
 
@@ -40,6 +41,9 @@ class DashboardController extends Controller
             return empty($s->parentId);
         })->count();
 
+        $transferredOutCount = AcademicRecord::where('finalStatus', 'transferred_out')->count();
+        $loyaltyAwardEligibleCount = AcademicRecord::where('loyaltyAwardEligible', true)->count();
+
         // ---- Today's attendance (Asia/Manila day, converted to UTC bounds) ----
         $start = Carbon::now('Asia/Manila')->startOfDay()->setTimezone('UTC');
         $end = Carbon::now('Asia/Manila')->endOfDay()->setTimezone('UTC');
@@ -71,6 +75,7 @@ class DashboardController extends Controller
         }
 
         $pendingGuestEnrollments = EnrollmentApplication::where('status', 'pending')->count();
+        
         $rejectedGuestEnrollments = EnrollmentApplication::where('status', 'rejected')->count();
         $rejectedApplications = EnrollmentApplication::where('status', 'rejected')
             ->orderBy('updated_at', 'desc')
@@ -88,6 +93,7 @@ class DashboardController extends Controller
                     'submittedAt' => $application->created_at?->toISOString(),
                     'rejectedAt' => $application->updated_at?->toISOString(),
                     'rejectionReason' => $application->rejectionReason ?? null,
+                    
                 ];
             })
             ->values()
@@ -126,6 +132,8 @@ class DashboardController extends Controller
             'missingRfid' => $missingRfid,
             'missingParentLink' => $missingParentLink,
             'pendingGuestEnrollments' => $pendingGuestEnrollments,
+            'transferredOutCount' => $transferredOutCount,
+            'loyaltyAwardEligibleCount' => $loyaltyAwardEligibleCount,
             'rejectedGuestEnrollments' => $rejectedGuestEnrollments,
             'rejectedApplications' => $rejectedApplications,
             'todayAttendance' => [
@@ -135,5 +143,34 @@ class DashboardController extends Controller
             ],
             'attentionItems' => $attentionItems,
         ]);
+    }
+
+    /**
+     * GET /api/dashboard/loyalty-eligible-students
+     *
+     * List of students flagged loyaltyAwardEligible on their AcademicRecord
+     * (set at graduation time in SchoolYearRolloverController::commit()).
+     */
+    public function loyaltyEligibleStudents()
+    {
+        $records = AcademicRecord::where('loyaltyAwardEligible', true)
+            ->orderBy('schoolYearLabel', 'desc')
+            ->get();
+
+        $studentIds = $records->pluck('studentId')->unique()->all();
+        $students = Student::whereIn('studentId', $studentIds)->get()->keyBy('studentId');
+
+        $list = $records->map(function ($record) use ($students) {
+            $student = $students->get($record->studentId);
+            return [
+                'studentId' => $record->studentId,
+                'name' => $student ? trim("{$student->firstName} {$student->lastName}") : $record->studentId,
+                'gradeLevel' => $record->gradeLevel,
+                'section' => $record->section,
+                'schoolYearLabel' => $record->schoolYearLabel,
+            ];
+        })->values()->all();
+
+        return response()->json(['data' => $list]);
     }
 }

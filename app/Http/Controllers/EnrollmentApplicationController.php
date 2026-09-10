@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\EnrollmentApplication;
 use App\Services\EnrollmentService;
+use App\Services\GradeLevelService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
@@ -71,7 +72,18 @@ class EnrollmentApplicationController extends Controller
             'firstName' => ['required', 'string', 'regex:/^[A-Za-z\s\-\'.]{2,50}$/'],
             'lastName' => ['required', 'string', 'regex:/^[A-Za-z\s\-\'.]{2,50}$/'],
             'dateOfBirth' => ['required', 'date', 'before:today'],
-            'gradeLevel' => 'required|string',
+            'gradeLevel' => ['required', 'string', function ($attribute, $value, $fail) use ($studentInput) {
+                if (!GradeLevelService::isValidGrade($value)) {
+                    $fail('Please select a valid grade level.');
+                    return;
+                }
+
+                if (!GradeLevelService::isEnrollmentTypeAllowed($value, (bool) $studentInput['isTransferee'])) {
+                    $fail((bool) $studentInput['isTransferee']
+                        ? 'Nursery and Grade 1 students must be enrolled as Regular students.'
+                        : 'Kindergarten, Preparatory, and Grades 2 to 6 students must be enrolled as Transferees.');
+                }
+            }],
             'section' => 'required|string',
         ]);
 
@@ -169,7 +181,18 @@ class EnrollmentApplicationController extends Controller
             'parent.relationship' => 'required|string',
             'parent.phone' => ['required', 'regex:/^09\d{9}$/'],
             'parent.email' => 'required|email',
-            'academic.gradeLevel' => 'required|string',
+            'academic.gradeLevel' => ['required', 'string', function ($attribute, $value, $fail) use ($isTransferee) {
+                if (!GradeLevelService::isValidGrade($value)) {
+                    $fail('Please select a valid grade level.');
+                    return;
+                }
+
+                if (!GradeLevelService::isEnrollmentTypeAllowed($value, $isTransferee)) {
+                    $fail($isTransferee
+                        ? 'Nursery and Grade 1 students must be enrolled as Regular students.'
+                        : 'Kindergarten, Preparatory, and Grades 2 to 6 students must be enrolled as Transferees.');
+                }
+            }],
             'academic.previousSchool' => $isTransferee ? 'required|string' : 'nullable|string',
             'signature' => 'nullable|string',
         ]);

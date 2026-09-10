@@ -17,6 +17,7 @@ class Student extends Model
         'dateOfBirth',
         'address',
         'gradeLevel',
+        'startingGradeLevel',
         'section',
         'enrollmentStatus',
         'photoUrl',

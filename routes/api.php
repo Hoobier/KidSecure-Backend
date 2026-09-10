@@ -43,6 +43,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/attendance-logs', [AttendanceController::class, 'index']);
     Route::get('/attendance-logs/filter-options', [AttendanceController::class, 'filterOptions']);
     Route::post('/students/{id}/reactivate', [StudentController::class, 'reactivate']);
+    Route::post('/students/{id}/re-enroll', [StudentController::class, 'reEnroll']);
     Route::get('/parents', [ParentController::class, 'index']);
     Route::get('/parents/{id}', [ParentController::class, 'show']);
     Route::patch('/parents/{id}', [ParentController::class, 'update']);
@@ -72,6 +73,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/guest/enrollments/{id}', [EnrollmentApplicationController::class, 'show']);
     Route::post('/guest/enrollments/{id}/convert-to-student', [EnrollmentApplicationController::class, 'convertToStudent']);
     Route::post('/guest/enrollments/{id}/reject', [EnrollmentApplicationController::class, 'reject']);
+    Route::get('/dashboard/loyalty-eligible-students', [DashboardController::class, 'loyaltyEligibleStudents']);
 
     Route::get('/term-settings', [TermSettingController::class, 'show']);
     Route::patch('/term-settings', [TermSettingController::class, 'update']);

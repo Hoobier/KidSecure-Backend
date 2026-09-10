@@ -14,6 +14,16 @@ class GradeLevelService
         return in_array($gradeLevel, self::order(), true);
     }
 
+    public static function isRegularEnrollmentGrade(string $gradeLevel): bool
+    {
+        return in_array($gradeLevel, ['Nursery', 'Grade 1'], true);
+    }
+
+    public static function isEnrollmentTypeAllowed(string $gradeLevel, bool $isTransferee): bool
+    {
+        return $isTransferee !== self::isRegularEnrollmentGrade($gradeLevel);
+    }
+
     /**
      * True when $gradeLevel is the highest grade the school offers —
      * a student here graduates instead of promoting, unless retained.

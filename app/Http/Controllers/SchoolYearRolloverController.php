@@ -59,7 +59,7 @@ class SchoolYearRolloverController extends Controller
 
             $suggestedAction = $groups[$gradeLevel]['defaultAction'];
 
-            $groups[$gradeLevel]['students'][] = [
+            $studentData = [
                 'id' => (string) $student->_id,
                 'studentId' => $student->studentId,
                 'name' => trim("{$student->firstName} {$student->lastName}"),
@@ -67,6 +67,18 @@ class SchoolYearRolloverController extends Controller
                 'gradeLevel' => $gradeLevel,
                 'suggestedAction' => $suggestedAction,
             ];
+
+            if ($groups[$gradeLevel]['defaultAction'] === 'graduate') {
+                $studentData['loyaltyEligible'] = in_array(
+                    $student->startingGradeLevel,
+                    ['Nursery', 'Kindergarten', 'Preparatory', 'Grade 1'],
+                    true
+                ) && AcademicRecord::where('studentId', $student->studentId)
+                    ->where('finalStatus', 'transferred_out')
+                    ->doesntExist();
+            }
+
+            $groups[$gradeLevel]['students'][] = $studentData;
 
             $suggestedAction === 'graduate' ? $graduating++ : $promoting++;
         }
@@ -99,7 +111,8 @@ class SchoolYearRolloverController extends Controller
             'newSchoolYearLabel' => 'required|string|max:20',
             'decisions' => 'required|array|min:1',
             'decisions.*.studentId' => 'required|string',
-            'decisions.*.action' => 'required|in:promote,retain,graduate',
+            'decisions.*.action' => 'required|in:promote,retain,graduate,transfer_out',
+            'decisions.*.note' => 'nullable|string|max:500',
         ]);
 
         if ($validator->fails()) {
@@ -128,7 +141,11 @@ class SchoolYearRolloverController extends Controller
                 ], 422);
             }
 
-            $students[$decision['studentId']] = ['student' => $student, 'action' => $decision['action']];
+            $students[$decision['studentId']] = [
+                'student' => $student,
+                'action' => $decision['action'],
+                'note' => $decision['note'] ?? null,
+            ];
         }
 
         // Firebase Auth accounts to disable AFTER the Mongo transaction commits
@@ -140,13 +157,28 @@ class SchoolYearRolloverController extends Controller
             foreach ($students as $entry) {
                 $student = $entry['student'];
                 $action = $entry['action'];
+                $note = $entry['note'];
 
                 AcademicRecord::create([
                     'studentId' => $student->studentId,
                     'schoolYearLabel' => $termSetting->schoolYearLabel,
                     'gradeLevel' => $student->gradeLevel,
                     'section' => $student->section,
-                    'finalStatus' => $action === 'promote' ? 'promoted' : ($action === 'retain' ? 'retained' : 'graduated'),
+                    'finalStatus' => $action === 'promote'
+                        ? 'promoted'
+                        : ($action === 'retain'
+                            ? 'retained'
+                            : ($action === 'transfer_out' ? 'transferred_out' : 'graduated')),
+                    'transferNote' => $action === 'transfer_out' ? $note : null,
+                    'loyaltyAwardEligible' => $action === 'graduate'
+                        ? (in_array(
+                            $student->startingGradeLevel,
+                            ['Nursery', 'Kindergarten', 'Preparatory', 'Grade 1'],
+                            true
+                        ) && AcademicRecord::where('studentId', $student->studentId)
+                            ->where('finalStatus', 'transferred_out')
+                            ->doesntExist())
+                        : false,
                     'reportCard' => $student->reportCard,
                 ]);
 
@@ -155,6 +187,23 @@ class SchoolYearRolloverController extends Controller
                     $student->save();
                 } elseif ($action === 'graduate') {
                     $student->enrollmentStatus = 'graduated';
+                    $student->save();
+
+                    if (!empty($student->rfidTag)) {
+                        RfidCard::where('tagId', $student->rfidTag)->update([
+                            'status' => 'inactive',
+                            'deactivatedDate' => now(),
+                        ]);
+                    }
+
+                    $parentAccount = ParentAccount::find($student->parentId);
+                    if ($parentAccount
+                        && !empty($parentAccount->firebaseUid)
+                        && $parentAccount->allLinkedStudentsHaveLeft()) {
+                        $parentUidsToFreeze[$parentAccount->firebaseUid] = true;
+                    }
+                } elseif ($action === 'transfer_out') {
+                    $student->enrollmentStatus = 'transferred_out';
                     $student->save();
 
                     if (!empty($student->rfidTag)) {

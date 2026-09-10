@@ -15,6 +15,12 @@ class AcademicRecord extends Model
         'gradeLevel',
         'section',
         'finalStatus',
+        'loyaltyAwardEligible',
+        'transferNote',
         'reportCard',
+    ];
+
+    protected $casts = [
+        'loyaltyAwardEligible' => 'boolean',
     ];
 }

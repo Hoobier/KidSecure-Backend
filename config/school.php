@@ -8,7 +8,9 @@ return [
      * RCAC ever adds a grade level, only this array changes.
      */
     'grade_levels' => [
+        'Nursery',
         'Kindergarten',
+        'Preparatory',
         'Grade 1',
         'Grade 2',
         'Grade 3',

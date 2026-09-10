@@ -176,6 +176,7 @@ class EnrollmentService
         $student->dateOfBirth = $studentInput['dateOfBirth'];
         $student->address = $studentInput['address'] ?? '';
         $student->gradeLevel = $studentInput['gradeLevel'];
+        $student->startingGradeLevel = $studentInput['gradeLevel'];
         $student->section = $studentInput['section'] ?? '';
         $student->rfidTag = $rfidTag ?: null;
         $student->parentId = (string) $parent->_id;

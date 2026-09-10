@@ -56,6 +56,16 @@ class FirebaseService
         $this->auth->disableUser($uid);
     }
 
+    public function enableParentAccount(string $uid): void
+    {
+        $this->auth->enableUser($uid);
+    }
+
+    public function deleteParentAccount(string $uid): void
+    {
+        $this->auth->deleteUser($uid);
+    }
+
     public function getParentAccountStatus(?string $uid): string
     {
         if (empty($uid)) {

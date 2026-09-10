@@ -63,7 +63,12 @@ class ParentController extends Controller
      */
     public function index(Request $request)
     {
-        $parents = ParentAccount::all();
+        $status = $request->query('status');
+        $parents = $status === 'deleted'
+            ? ParentAccount::where('isDeleted', true)->get()
+            : ParentAccount::where(function ($query) {
+                $query->where('isDeleted', '!=', true)->orWhereNull('isDeleted');
+            })->get();
         $students = Student::whereIn('enrollmentStatus', ['active', 'inactive', 'deleted', 'graduated'])
             ->get(['studentId', 'firstName', 'lastName', 'parentId', 'enrollmentStatus']);
 
@@ -94,7 +99,10 @@ class ParentController extends Controller
                 'email' => $p->email,
                 'phone' => $p->phone,
                 'children' => $childrenByParent[(string) $p->_id] ?? [],
-                'accountStatus' => $firebase?->getParentAccountStatus($p->firebaseUid) ?? 'unknown',
+                'isDeleted' => (bool) ($p->isDeleted ?? false),
+                'accountStatus' => ($p->isDeleted ?? false)
+                    ? 'deleted'
+                    : ($firebase?->getParentAccountStatus($p->firebaseUid) ?? 'unknown'),
             ];
         });
 
@@ -152,6 +160,115 @@ class ParentController extends Controller
                 'last_page'    => $lastPage,
             ],
         ]);
+    }
+
+    public function softDelete($id)
+    {
+        $parent = ParentAccount::find($id);
+
+        if (!$parent) {
+            return response()->json(['message' => 'Parent account not found.'], 404);
+        }
+
+        $parent->isDeleted = true;
+        $parent->deletedAt = now()->toDateTimeString();
+        $parent->save();
+
+        if (!empty($parent->firebaseUid)) {
+            try {
+                app(FirebaseService::class)->disableParentAccount($parent->firebaseUid);
+            } catch (\Throwable $e) {
+                \Log::warning("Failed to disable Firebase parent account {$parent->firebaseUid}: " . $e->getMessage());
+            }
+        }
+
+        return response()->json(['message' => 'Parent account has been deleted and moved to Deleted Parents.']);
+    }
+
+    public function restore($id)
+    {
+        $parent = ParentAccount::find($id);
+
+        if (!$parent) {
+            return response()->json(['message' => 'Parent account not found.'], 404);
+        }
+
+        $parent->isDeleted = false;
+        $parent->deletedAt = null;
+        $parent->save();
+
+        if (!empty($parent->firebaseUid) && !$parent->allLinkedStudentsHaveLeft()) {
+            try {
+                app(FirebaseService::class)->enableParentAccount($parent->firebaseUid);
+            } catch (\Throwable $e) {
+                \Log::warning("Failed to enable Firebase parent account {$parent->firebaseUid}: " . $e->getMessage());
+            }
+        }
+
+        return response()->json(['message' => 'Parent account has been restored.']);
+    }
+
+    public function forceDelete($id)
+    {
+        $parent = ParentAccount::find($id);
+
+        if (!$parent) {
+            return response()->json(['message' => 'Parent account not found.'], 404);
+        }
+
+        if ($parent->isDeleted !== true) {
+            return response()->json([
+                'message' => 'This parent account must be deleted before it can be permanently removed.',
+            ], 422);
+        }
+
+        $blockingStudents = Student::where('parentId', (string) $parent->_id)
+            ->where('enrollmentStatus', '!=', 'graduated')
+            ->get(['studentId', 'firstName', 'lastName', 'gradeLevel', 'section', 'enrollmentStatus']);
+
+        if ($blockingStudents->isNotEmpty()) {
+            return response()->json([
+                'message' => 'Unable to delete this account because it is still linked to active student records.',
+                'blockingStudents' => $blockingStudents->map(function ($student) {
+                    return [
+                        'id' => (string) $student->_id,
+                        'studentId' => $student->studentId,
+                        'name' => trim($student->firstName . ' ' . $student->lastName),
+                        'gradeLevel' => $student->gradeLevel,
+                        'section' => $student->section,
+                        'status' => $student->enrollmentStatus,
+                    ];
+                })->values()->all(),
+            ], 409);
+        }
+
+        if (!empty($parent->firebaseUid)) {
+            try {
+                app(FirebaseService::class)->deleteParentAccount($parent->firebaseUid);
+            } catch (\Throwable $e) {
+                \Log::error("Failed to delete Firebase parent account {$parent->firebaseUid}: " . $e->getMessage());
+            }
+
+            try {
+                app(FirebaseRealtimeService::class)->removeParent($parent->firebaseUid);
+            } catch (\Throwable $e) {
+                \Log::error("Failed to remove parent RTDB node {$parent->firebaseUid}: " . $e->getMessage());
+            }
+        }
+
+        $linkedStudents = Student::where('parentId', (string) $parent->_id)->get();
+        foreach ($linkedStudents as $student) {
+            try {
+                $student->parentId = null;
+                $student->save();
+            } catch (\Throwable $e) {
+                \Log::error("Failed to unlink student {$student->studentId} from deleted parent {$parent->_id}: " . $e->getMessage());
+            }
+        }
+
+        $parent->delete();
+
+        return response()->json(['message' => 'Parent account has been permanently deleted.']);
     }
 
     /**
@@ -327,7 +444,10 @@ class ParentController extends Controller
                 'relationship' => $parent->relationship,
                 'email'      => $parent->email,
                 'phone'      => $parent->phone,
-                'accountStatus' => $firebase?->getParentAccountStatus($parent->firebaseUid) ?? 'unknown',
+                'accountStatus' => ($parent->isDeleted ?? false)
+                    ? 'deleted'
+                    : ($firebase?->getParentAccountStatus($parent->firebaseUid) ?? 'unknown'),
+                'isDeleted' => (bool) ($parent->isDeleted ?? false),
                 'createdAt'  => $parent->created_at,
                 'children'   => $children,
             ],

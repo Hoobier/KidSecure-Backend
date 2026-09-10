@@ -674,6 +674,89 @@ class StudentController extends Controller
         return response()->json(['message' => 'Student restored successfully.']);
     }
 
+    public function forceDelete($id)
+    {
+        $student = Student::find($id);
+
+        if (!$student) {
+            return response()->json(['message' => 'Student not found.'], 404);
+        }
+
+        if ($student->enrollmentStatus !== 'deleted') {
+            return response()->json([
+                'message' => 'This student must be moved to Deleted Students before it can be permanently deleted.',
+            ], 422);
+        }
+
+        $studentFullName = trim($student->firstName . ' ' . $student->lastName);
+        $studentIdLabel = $student->studentId;
+
+        try {
+            $uploadService = app(\App\Services\DocumentUploadService::class);
+            foreach ($student->documents ?? [] as $doc) {
+                if (is_array($doc) && !empty($doc['public_id'])) {
+                    try {
+                        $uploadService->delete($doc['public_id'], $doc['resource_type'] ?? 'image');
+                    } catch (\Throwable $e) {
+                        \Log::error('Failed to delete Cloudinary asset during student delete', [
+                            'public_id' => $doc['public_id'],
+                            'error' => $e->getMessage(),
+                        ]);
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            \Log::error("Student document cleanup failed for {$studentIdLabel}: " . $e->getMessage());
+        }
+
+        try {
+            if (!empty($student->rfidTag)) {
+                \App\Models\RfidCard::where('tagId', $student->rfidTag)->update([
+                    'status' => 'inactive',
+                    'deactivatedDate' => now(),
+                ]);
+            }
+        } catch (\Throwable $e) {
+            \Log::error("RFID cleanup failed for student {$studentIdLabel}: " . $e->getMessage());
+        }
+
+        try {
+            app(FirebaseRealtimeService::class)->removeStudent($student->studentId);
+        } catch (\Throwable $e) {
+            \Log::error("RTDB cleanup failed for student {$studentIdLabel}: " . $e->getMessage());
+        }
+
+        try {
+            $linkedParents = ParentAccount::whereIn('studentIds', [(string) $student->_id])->get();
+            foreach ($linkedParents as $parent) {
+                try {
+                    $parent->studentIds = array_values(array_diff($parent->studentIds ?? [], [(string) $student->_id]));
+                    $parent->save();
+                } catch (\Throwable $e) {
+                    \Log::error("Parent linkage cleanup failed for parent {$parent->_id} and student {$studentIdLabel}: " . $e->getMessage());
+                }
+            }
+        } catch (\Throwable $e) {
+            \Log::error("Parent linkage cleanup failed for student {$studentIdLabel}: " . $e->getMessage());
+        }
+
+        try {
+            \App\Models\AttendanceLog::where('studentId', $student->studentId)->delete();
+        } catch (\Throwable $e) {
+            \Log::error("Attendance cleanup failed for student {$studentIdLabel}: " . $e->getMessage());
+        }
+
+        try {
+            \App\Models\AcademicRecord::where('studentId', $student->studentId)->delete();
+        } catch (\Throwable $e) {
+            \Log::error("Academic record cleanup failed for student {$studentIdLabel}: " . $e->getMessage());
+        }
+
+        $student->delete();
+
+        return response()->json(['message' => "{$studentFullName} has been permanently deleted."]);
+    }
+
     /**
      * POST /api/students/{id}/reassign-rfid
      * Updates a student's RFID tag. Enforces uniqueness — no two students

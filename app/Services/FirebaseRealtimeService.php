@@ -25,6 +25,24 @@ class FirebaseRealtimeService
         $this->db->getReference('entryExitLogs')->remove();
     }
 
+    public function removeStudent(string $studentId): void
+    {
+        if (empty($studentId)) {
+            return;
+        }
+
+        $this->db->getReference("students/{$studentId}")->remove();
+    }
+
+    public function removeParent(string $firebaseUid): void
+    {
+        if (empty($firebaseUid)) {
+            return;
+        }
+
+        $this->db->getReference("parents/{$firebaseUid}")->remove();
+    }
+
 
     public function sendScanNotification(AttendanceLog $log): void
     {

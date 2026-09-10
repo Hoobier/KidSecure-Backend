@@ -167,7 +167,7 @@ class SchoolYearRolloverController extends Controller
                     $parentAccount = ParentAccount::find($student->parentId);
                     if ($parentAccount
                         && !empty($parentAccount->firebaseUid)
-                        && $this->allLinkedStudentsHaveLeft($parentAccount)) {
+                        && $parentAccount->allLinkedStudentsHaveLeft()) {
                         $parentUidsToFreeze[$parentAccount->firebaseUid] = true;
                     }
                 }
@@ -199,18 +199,4 @@ class SchoolYearRolloverController extends Controller
         return response()->json(['message' => 'School year rollover completed.']);
     }
 
-    private function allLinkedStudentsHaveLeft(ParentAccount $parentAccount): bool
-    {
-        $studentIds = $parentAccount->studentIds ?? [];
-
-        if (empty($studentIds)) {
-            return false;
-        }
-
-        $stillActiveCount = Student::whereIn('_id', $studentIds)
-            ->where('enrollmentStatus', 'active')
-            ->count();
-
-        return $stillActiveCount === 0;
-    }
 }

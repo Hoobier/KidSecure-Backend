@@ -52,6 +52,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/dashboard/summary', [DashboardController::class, 'summary']);
     Route::post('/students/{id}/delete', [StudentController::class, 'softDelete']);
     Route::post('/students/{id}/restore', [StudentController::class, 'restore']);
+    Route::post('/students/{id}/permanently-delete', [StudentController::class, 'forceDelete']);
+    Route::post('/parents/{id}/delete', [ParentController::class, 'softDelete']);
+    Route::post('/parents/{id}/restore', [ParentController::class, 'restore']);
+    Route::post('/parents/{id}/permanently-delete', [ParentController::class, 'forceDelete']);
     Route::post('/enrollment/rfid/start-listening', [EnrollmentRfidController::class, 'startListening']);
     Route::get('/enrollment/rfid/pending-scan', [EnrollmentRfidController::class, 'pendingScan']);
     Route::post('/enrollment/rfid/stop-listening', [EnrollmentRfidController::class, 'stopListening']);

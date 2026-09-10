@@ -111,6 +111,28 @@ class FirebaseRealtimeService
             ]);
     }
 
+    public function mirrorReportCard(Student $student): void
+    {
+        if (empty($student->studentId)) {
+            return;
+        }
+
+        $this->db
+            ->getReference("students/{$student->studentId}/reportCard")
+            ->set($student->reportCard);
+    }
+
+    public function removeReportCard(string $studentId): void
+    {
+        if (empty($studentId)) {
+            return;
+        }
+
+        $this->db
+            ->getReference("students/{$studentId}/reportCard")
+            ->remove();
+    }
+
     /**
      * Writes/updates a parent's profile into RTDB, keyed by their
      * Firebase Auth UID.

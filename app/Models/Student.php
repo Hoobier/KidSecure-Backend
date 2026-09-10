@@ -27,6 +27,17 @@ class Student extends Model
         'isTransferee',
         'previousSchool',
         'reportCard',
+        'reportCardReleased',
+        'reportCardReleasedAt',
+    ];
+
+    protected $attributes = [
+        'reportCardReleased' => false,
+    ];
+
+    protected $casts = [
+        'reportCardReleased' => 'boolean',
+        'reportCardReleasedAt' => 'datetime',
     ];
 
     public function upsertDocument(array $newDocument): void

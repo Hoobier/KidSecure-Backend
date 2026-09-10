@@ -65,6 +65,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/enrollment-drafts/{draftId}/documents/{type}', [EnrollmentDraftDocumentController::class, 'show']);
     Route::get('/students/{id}/report-card', [StudentController::class, 'getReportCard']);
     Route::post('/students/{id}/report-card', [StudentController::class, 'saveReportCard']);
+    Route::post('/students/{id}/report-card/release', [StudentController::class, 'releaseReportCard']);
+    Route::post('/students/{id}/report-card/unrelease', [StudentController::class, 'unreleaseReportCard']);
     Route::get('/guest/enrollments', [EnrollmentApplicationController::class, 'index']);
     Route::delete('/guest/enrollments/rejected', [EnrollmentApplicationController::class, 'destroyRejected']);
     Route::get('/guest/enrollments/{id}', [EnrollmentApplicationController::class, 'show']);

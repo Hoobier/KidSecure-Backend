@@ -896,7 +896,13 @@ class StudentController extends Controller
             return response()->json(['message' => 'Student not found.'], 404);
         }
 
-        return response()->json(['data' => $student->reportCard ?? new \stdClass()]);
+        return response()->json([
+            'data' => [
+                'grades' => $student->reportCard ?? new \stdClass(),
+                'reportCardReleased' => $student->reportCardReleased ?? false,
+                'reportCardReleasedAt' => $student->reportCardReleasedAt ?? null,
+            ],
+        ]);
     }
 
     /**
@@ -926,6 +932,60 @@ class StudentController extends Controller
         $student->reportCard = $request->input('grades');
         $student->save();
 
+        if ($student->reportCardReleased) {
+            app(FirebaseRealtimeService::class)->mirrorReportCard($student);
+        }
+
         return response()->json(['message' => 'Report card saved.', 'data' => $student->reportCard]);
+    }
+
+    /**
+     * POST /api/students/{id}/report-card/release
+     */
+    public function releaseReportCard($id)
+    {
+        $student = Student::find($id);
+        if (!$student) {
+            return response()->json(['message' => 'Student not found.'], 404);
+        }
+
+        $student->reportCardReleased = true;
+        $student->reportCardReleasedAt = now();
+        $student->save();
+
+        app(FirebaseRealtimeService::class)->mirrorReportCard($student);
+
+        return response()->json([
+            'message' => 'Report card released.',
+            'data' => [
+                'reportCardReleased' => true,
+                'reportCardReleasedAt' => $student->reportCardReleasedAt,
+            ],
+        ]);
+    }
+
+    /**
+     * POST /api/students/{id}/report-card/unrelease
+     */
+    public function unreleaseReportCard($id)
+    {
+        $student = Student::find($id);
+        if (!$student) {
+            return response()->json(['message' => 'Student not found.'], 404);
+        }
+
+        $student->reportCardReleased = false;
+        $student->reportCardReleasedAt = null;
+        $student->save();
+
+        app(FirebaseRealtimeService::class)->removeReportCard($student->studentId);
+
+        return response()->json([
+            'message' => 'Report card release revoked.',
+            'data' => [
+                'reportCardReleased' => false,
+                'reportCardReleasedAt' => null,
+            ],
+        ]);
     }
 }

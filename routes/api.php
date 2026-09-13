@@ -109,6 +109,6 @@ Route::middleware('verify.firebase')->prefix('app')->group(function () {
 });
 
 Route::middleware('verify.device')->prefix('device')->group(function () {
-    Route::post('/device/scan', [DeviceScanController::class, 'turnstileScan']);
-    Route::post('/device/register-scan', [DeviceScanController::class, 'registrationScan']);
+    Route::post('/scan', [DeviceScanController::class, 'turnstileScan']);
+    Route::post('/register-scan', [DeviceScanController::class, 'registrationScan']);
 });

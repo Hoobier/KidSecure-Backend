@@ -18,4 +18,13 @@ return [
         'Grade 5',
         'Grade 6',
     ],
+
+    'subjects' => [
+        'CLVE'  => 'Christian Living / Values Education',
+        'MATH'  => 'Mathematics',
+        'SCI'   => 'Science',
+        'FIL'   => 'Filipino',
+        'MAPEH' => 'MAPEH',
+        'EPP'   => 'Edukasyong Pantahanan at Praktikal',
+    ],
 ];

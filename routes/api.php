@@ -4,6 +4,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\AttendanceController;
+use App\Http\Controllers\TeacherAttendanceController;
 use App\Http\Controllers\StudentController;
 use App\Http\Controllers\ParentController;
 use App\Http\Controllers\DashboardController;
@@ -16,10 +17,12 @@ use App\Http\Controllers\EnrollmentDraftDocumentController;
 use App\Http\Controllers\EnrollmentApplicationController;
 use App\Http\Controllers\TermSettingController;
 use App\Http\Controllers\SchoolYearRolloverController;
-
+use App\Http\Controllers\TeacherStudentController;
+use App\Http\Controllers\TeacherDashboardController;
 
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/password/forgot', [PasswordController::class, 'forgotPassword']);
+Route::post('/teacher/login', [AuthController::class, 'teacherLogin']);
 
 Route::get('/user', function (Request $request) {
     return $request->user();
@@ -32,7 +35,7 @@ Route::get('/ping', function () {
 Route::post('/guest/enrollments', [EnrollmentApplicationController::class, 'store']);
 Route::get('/guest/enrollments/lookup', [EnrollmentApplicationController::class, 'lookup']);
 
-Route::middleware('auth:sanctum')->group(function () {
+Route::middleware(['auth:sanctum', 'actor:admin'])->group(function () {
     Route::get('/students', [StudentController::class, 'index']);
     Route::post('/students', [StudentController::class, 'store']);
     Route::get('/students/{id}', [StudentController::class, 'show']);
@@ -82,6 +85,18 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/school-year/rollover-commit', [SchoolYearRolloverController::class, 'commit']);
 });
 
+Route::middleware(['auth:sanctum', 'actor:teacher'])->prefix('teacher')->group(function () {
+    Route::get('/ping', fn () => response()->json(['ok' => true]));
+    Route::get('/attendance-logs', [TeacherAttendanceController::class, 'index']);
+    Route::get('/students', [TeacherStudentController::class, 'index']);
+    Route::get('/students/{id}', [TeacherStudentController::class, 'show']);
+    Route::post('/students/{id}/report-card', [TeacherStudentController::class, 'saveReportCard']);
+    Route::post('/students/{id}/report-card/compile', [TeacherStudentController::class, 'compileReportCard']);
+    Route::post('/students/{id}/report-card/release', [TeacherStudentController::class, 'releaseReportCard']);
+    Route::post('/students/{id}/report-card/unrelease', [TeacherStudentController::class, 'unreleaseReportCard']);
+    Route::get('/dashboard/summary', [TeacherDashboardController::class, 'summary']);
+});
+
 // Flutter parent app — Firebase ID token auth, completely separate
 // from the admin portal's Sanctum routes above (sibling group, not nested).
 Route::middleware('verify.firebase')->prefix('app')->group(function () {
@@ -94,5 +109,6 @@ Route::middleware('verify.firebase')->prefix('app')->group(function () {
 });
 
 Route::middleware('verify.device')->prefix('device')->group(function () {
-    Route::post('/scan', [DeviceScanController::class, 'scan']);
+    Route::post('/device/scan', [DeviceScanController::class, 'turnstileScan']);
+    Route::post('/device/register-scan', [DeviceScanController::class, 'registrationScan']);
 });

@@ -15,6 +15,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->alias([
             'firebase.auth' => \App\Http\Middleware\VerifyFirebaseToken::class,
+            'actor' => \App\Http\Middleware\EnsureActorType::class,
         ]);
     })
 

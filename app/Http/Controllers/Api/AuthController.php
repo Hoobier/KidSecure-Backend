@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Admin;
+use App\Models\Teacher;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
@@ -41,6 +42,42 @@ class AuthController extends Controller
                 'id' => $admin->_id,
                 'name' => $admin->name,
                 'email' => $admin->email,
+            ],
+        ]);
+    }
+
+    public function teacherLogin(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'email' => 'required|email',
+            'password' => 'required|string',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $teacher = Teacher::where('email', $request->email)->first();
+
+        if (! $teacher || ! Hash::check($request->password, $teacher->password)) {
+            return response()->json([
+                'message' => 'Invalid email or password.',
+            ], 401);
+        }
+
+        $token = $teacher->createToken('teacher-token')->plainTextToken;
+
+        return response()->json([
+            'message' => 'Login successful.',
+            'token' => $token,
+            'teacher' => [
+                'id' => $teacher->_id,
+                'firstName' => $teacher->firstName,
+                'lastName' => $teacher->lastName,
+                'email' => $teacher->email,
+                'department' => $teacher->department,
+                'homeGradeLevel' => $teacher->homeGradeLevel,
+                'forteSubjectCode' => $teacher->forteSubjectCode,
             ],
         ]);
     }

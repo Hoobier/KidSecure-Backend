@@ -12,6 +12,7 @@ use App\Models\RfidCard;
 use App\Mail\ParentAccountCreated;
 use App\Services\GradeLevelService;
 use Illuminate\Support\Facades\Mail;
+use App\Models\ReportCardRevision;
 
 class StudentController extends Controller
 {
@@ -507,6 +508,7 @@ class StudentController extends Controller
         return response()->json(['message' => 'Login information has been resent.']);
     }
 
+
     public function deactivate($id)
     {
         $student = Student::find($id);
@@ -788,9 +790,9 @@ class StudentController extends Controller
             return response()->json(['message' => 'Student not found.'], 404);
         }
 
-        if ($student->enrollmentStatus !== 'deleted') {
+        if (!in_array($student->enrollmentStatus, ['deleted', 'transferred_out'], true)) {
             return response()->json([
-                'message' => 'This student must be moved to Deleted Students before it can be permanently deleted.',
+                'message' => 'This student must be in Deleted Students or Transferred Students before it can be permanently deleted.',
             ], 422);
         }
 
@@ -1024,25 +1026,94 @@ class StudentController extends Controller
             return response()->json(['message' => 'Student not found.'], 404);
         }
 
+        $validCodes = array_keys(config('school.subjects'));
+
         $validator = Validator::make($request->all(), [
-            'grades' => 'required|array',
+            'grades' => ['required', 'array', function ($attribute, $value, $fail) use ($validCodes) {
+                foreach (array_keys($value) as $code) {
+                    if (! in_array($code, $validCodes)) {
+                        $fail("Unknown subject code: {$code}");
+                    }
+                }
+            }],
+            'grades.*.T1.grade' => 'nullable|numeric|min:0|max:100',
+            'grades.*.T1.status' => 'nullable|in:draft,submitted,compiled,pending',
+            'grades.*.T2.grade' => 'nullable|numeric|min:0|max:100',
+            'grades.*.T2.status' => 'nullable|in:draft,submitted,compiled,pending',
+            'grades.*.T3.grade' => 'nullable|numeric|min:0|max:100',
+            'grades.*.T3.status' => 'nullable|in:draft,submitted,compiled,pending',
+            'note' => 'nullable|string|max:500',
         ]);
 
         if ($validator->fails()) {
-            return response()->json([
-                'message' => 'Please check the report card details and try again.',
-                'errors' => $validator->errors(),
-            ], 422);
+            return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        $student->reportCard = $request->input('grades');
+        $incoming = $request->input('grades');
+        $existing = $student->reportCard ?? [];
+        $note = $request->input('note');
+        $touchedFinalized = false;
+
+        foreach ($incoming as $subjectCode => $terms) {
+            foreach ($terms as $term => $entry) {
+                $oldEntry  = $existing[$subjectCode][$term] ?? null;
+                $oldStatus = $oldEntry['status'] ?? null;
+                $oldGrade  = $oldEntry['grade'] ?? null;
+                $newGrade  = $entry['grade'] ?? null;
+                $newStatus = $entry['status'] ?? null;
+
+                $changed = $oldGrade != $newGrade || $oldStatus != $newStatus;
+                $wasFinalized = $oldStatus === 'compiled' || $student->reportCardReleased;
+
+                if ($changed && $wasFinalized) {
+                    if (empty($note)) {
+                        return response()->json([
+                            'message' => "A note is required when editing an already compiled or released entry ({$subjectCode} {$term}).",
+                        ], 422);
+                    }
+
+                    $touchedFinalized = true;
+
+                    ReportCardRevision::create([
+                        'studentId'   => $student->studentId,
+                        'subjectCode' => $subjectCode,
+                        'term'        => $term,
+                        'note'        => $note,
+                        'changedAt'   => now(),
+                    ]);
+                }
+            }
+        }
+
+        $student->reportCard = $incoming;
         $student->save();
 
-        if ($student->reportCardReleased) {
-            app(FirebaseRealtimeService::class)->mirrorReportCard($student);
+        if ($touchedFinalized && $student->reportCardReleased) {
+            $student->reportCardReleased = false;
+            $student->reportCardReleasedAt = null;
+            $student->save();
+
+            try {
+                app(FirebaseRealtimeService::class)->removeReportCard($student->studentId);
+            } catch (\Throwable $e) {
+                \Log::error("RTDB removeReportCard failed after edit-triggered unrelease for {$student->studentId}: " . $e->getMessage());
+            }
+        } elseif ($student->reportCardReleased) {
+            try {
+                app(FirebaseRealtimeService::class)->mirrorReportCard($student);
+            } catch (\Throwable $e) {
+                \Log::error("RTDB mirrorReportCard failed after report card save for {$student->studentId}: " . $e->getMessage());
+            }
         }
 
-        return response()->json(['message' => 'Report card saved.', 'data' => $student->reportCard]);
+        return response()->json([
+            'message' => 'Report card saved.',
+            'data' => [
+                'grades' => $student->reportCard,
+                'reportCardReleased' => $student->reportCardReleased,
+                'reportCardReleasedAt' => $student->reportCardReleasedAt,
+            ],
+        ]);
     }
 
     /**

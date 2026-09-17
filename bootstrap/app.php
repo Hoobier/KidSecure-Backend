@@ -32,8 +32,7 @@ return Application::configure(basePath: dirname(__DIR__))
     
     ->withCommands([
         \App\Console\Commands\MigrateTeacherAssignments::class,
-        \App\Console\Commands\MigrateReportCardFlags::class,
-        \App\Console\Commands\MigrateReportCardTerms::class,
+        \App\Console\Commands\CleanupLegacyReportCardFlags::class,
     ])->create();
 
     

@@ -1007,7 +1007,7 @@ class StudentController extends Controller
         return response()->json([
             'data' => [
                 'grades' => $student->reportCard ?? new \stdClass(),
-                'reportCardReleased' => $student->reportCardReleased ?? false,
+                'reportCardReleasedTerm' => $student->reportCardReleasedTerm ?? null,
                 'reportCardReleasedAt' => $student->reportCardReleasedAt ?? null,
             ],
         ]);
@@ -1095,7 +1095,7 @@ class StudentController extends Controller
 
         // If the card is already released, re-mirror so the parent app sees
         // the correction immediately.
-        if ($student->reportCardReleased ?? false) {
+        if ($student->reportCardReleasedTerm ?? null) {
             try {
                 app(FirebaseRealtimeService::class)->mirrorReportCard($student);
             } catch (\Throwable $e) {
@@ -1107,9 +1107,8 @@ class StudentController extends Controller
             'message' => 'Report card saved.',
             'data' => [
                 'grades'                    => $student->reportCard,
-                'reportCardReleased'        => $student->reportCardReleased ?? false,
+                'reportCardReleasedTerm'    => $student->reportCardReleasedTerm ?? null,
                 'reportCardReleasedAt'      => $student->reportCardReleasedAt ?? null,
-                'reportCardAdminLocked'     => $student->reportCardAdminLocked ?? false,
             ],
         ]);
     }
@@ -1137,12 +1136,7 @@ class StudentController extends Controller
         $student->reportCardReleasedTerm     = $term;
         $student->reportCardLockedTerm       = $term;
         $student->reportCardSubmittedTerm    = null;
-
-        // Keep legacy flags in sync for now (Phase 5 removes them).
-        $student->reportCardReleased         = true;
         $student->reportCardReleasedAt       = now();
-        $student->reportCardAdminLocked      = true;
-        $student->reportCardSubmittedToAdmin = false;
 
         $student->save();
 
@@ -1175,9 +1169,6 @@ class StudentController extends Controller
         $student->reportCardReleasedTerm = null;
         // reportCardLockedTerm deliberately STAYS — once a term is locked,
         // it remains locked forever. Only the released flag is cleared.
-
-        // Keep legacy flags in sync.
-        $student->reportCardReleased   = false;
         $student->reportCardReleasedAt = null;
 
         $student->save();
@@ -1275,10 +1266,6 @@ class StudentController extends Controller
                 'reportCardReleasedTerm'     => $s->reportCardReleasedTerm ?? null,
                 'reportCardLockedTerm'       => $s->reportCardLockedTerm ?? null,
                 'reportCardReleasedAt'       => $s->reportCardReleasedAt ?? null,
-                // legacy fields kept for now
-                'reportCardSubmittedToAdmin' => (bool) ($s->reportCardSubmittedToAdmin ?? false),
-                'reportCardReleased'         => (bool) ($s->reportCardReleased ?? false),
-                'reportCardAdminLocked'      => (bool) ($s->reportCardAdminLocked ?? false),
             ];
         });
 
@@ -1298,7 +1285,7 @@ class StudentController extends Controller
             $term = "T{$termNumber}";
         }
 
-        $students = Student::where('reportCardReleasedTerm', $term)
+        $students = Student::where('reportCardLockedTerm', $term)
             ->whereIn('enrollmentStatus', ['active', 'inactive'])
             ->get(['gradeLevel', 'section']);
 

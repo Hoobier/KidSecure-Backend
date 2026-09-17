@@ -73,7 +73,7 @@ class TeacherStudentController extends Controller
         $students = Student::where('gradeLevel', $gradeLevel)
             ->where('section', $section)
             ->whereIn('enrollmentStatus', ['active', 'inactive'])
-            ->get(['_id', 'studentId', 'firstName', 'lastName', 'gradeLevel', 'section', 'parentId', 'reportCard', 'reportCardSubmittedTerm', 'reportCardReleasedTerm', 'reportCardLockedTerm', 'reportCardAdminLocked', 'reportCardSubmittedToAdmin', 'reportCardReleased'])
+            ->get(['_id', 'studentId', 'firstName', 'lastName', 'gradeLevel', 'section', 'parentId', 'reportCard', 'reportCardSubmittedTerm', 'reportCardReleasedTerm', 'reportCardLockedTerm'])
             ->values();
 
         $data = $students->map(function ($student) use ($access, $teacher) {
@@ -85,23 +85,18 @@ class TeacherStudentController extends Controller
                 'section'    => $student->section,
             ];
             if ($access === 'home') {
-                $row['forteSubjectCode']           = $teacher->forteSubjectCode;   // ← ADD
+                $row['forteSubjectCode']           = $teacher->forteSubjectCode;
                 $row['hasParentLink']              = !empty($student->parentId);
                 $row['reportCard']                 = $student->reportCard ?? new \stdClass();
-                $row['reportCardSubmittedTerm'] = $student->reportCardSubmittedTerm ?? null;
-                $row['reportCardReleasedTerm']  = $student->reportCardReleasedTerm  ?? null;
-                $row['reportCardLockedTerm']    = $student->reportCardLockedTerm    ?? null;
-                $row['reportCardAdminLocked']      = (bool) ($student->reportCardAdminLocked ?? false);
-                $row['reportCardSubmittedToAdmin'] = (bool) ($student->reportCardSubmittedToAdmin ?? false);
-                $row['reportCardReleased']         = (bool) ($student->reportCardReleased ?? false);
+                $row['reportCardSubmittedTerm']    = $student->reportCardSubmittedTerm ?? null;
+                $row['reportCardReleasedTerm']     = $student->reportCardReleasedTerm  ?? null;
+                $row['reportCardLockedTerm']       = $student->reportCardLockedTerm    ?? null;
             } else {
                 $row['forteSubjectCode']           = $teacher->forteSubjectCode;
                 $row['reportCard']                 = $student->reportCard[$teacher->forteSubjectCode] ?? new \stdClass();
-                $row['reportCardSubmittedTerm'] = $student->reportCardSubmittedTerm ?? null;
-                $row['reportCardReleasedTerm']  = $student->reportCardReleasedTerm  ?? null;
-                $row['reportCardLockedTerm']    = $student->reportCardLockedTerm    ?? null;
-                $row['reportCardAdminLocked']      = (bool) ($student->reportCardAdminLocked ?? false);
-                $row['reportCardSubmittedToAdmin'] = (bool) ($student->reportCardSubmittedToAdmin ?? false);
+                $row['reportCardSubmittedTerm']    = $student->reportCardSubmittedTerm ?? null;
+                $row['reportCardReleasedTerm']     = $student->reportCardReleasedTerm  ?? null;
+                $row['reportCardLockedTerm']       = $student->reportCardLockedTerm    ?? null;
             }
             return $row;
         });
@@ -171,10 +166,7 @@ class TeacherStudentController extends Controller
             'reportCardSubmittedTerm'    => $student->reportCardSubmittedTerm ?? null,
             'reportCardReleasedTerm'     => $student->reportCardReleasedTerm  ?? null,
             'reportCardLockedTerm'       => $student->reportCardLockedTerm    ?? null,
-            'reportCardAdminLocked'      => (bool) ($student->reportCardAdminLocked ?? false),
-            'reportCardSubmittedToAdmin' => (bool) ($student->reportCardSubmittedToAdmin ?? false),
             'reportCardSubmittedAt'      => $student->reportCardSubmittedAt ?? null,
-            'reportCardReleased'         => (bool) ($student->reportCardReleased ?? false),
         ];
 
         if ($access === 'home') {
@@ -477,7 +469,6 @@ class TeacherStudentController extends Controller
         // Write the new fields. Keep the legacy flags in sync for now, so
         // anything that still reads them (rollover, misc) doesn't break.
         $student->reportCardSubmittedTerm    = $term;
-        $student->reportCardSubmittedToAdmin = true;
         $student->reportCardSubmittedAt      = now();
         $student->save();
 
@@ -485,7 +476,6 @@ class TeacherStudentController extends Controller
             'message' => 'Submitted to admin.',
             'data' => [
                 'reportCardSubmittedTerm'    => $term,
-                'reportCardSubmittedToAdmin' => true,
                 'reportCardSubmittedAt'      => $student->reportCardSubmittedAt,
             ],
         ]);
@@ -516,7 +506,6 @@ class TeacherStudentController extends Controller
         }
 
         $student->reportCardSubmittedTerm    = null;
-        $student->reportCardSubmittedToAdmin = false;
         $student->reportCardSubmittedAt      = null;
         $student->save();
 
@@ -524,7 +513,6 @@ class TeacherStudentController extends Controller
             'message' => 'Submission recalled.',
             'data' => [
                 'reportCardSubmittedTerm'    => null,
-                'reportCardSubmittedToAdmin' => false,
                 'reportCardSubmittedAt'      => null,
             ],
         ]);

@@ -113,13 +113,9 @@ class SchoolYearRolloverController extends Controller
             $student->reportCardReleasedTerm  = null;
             $student->reportCardLockedTerm    = null;
 
-            // Legacy flat flags (Phase 5 removes these; keep them in sync
-            // for now so anything still reading them behaves correctly)
-            $student->reportCardSubmittedToAdmin = false;
-            $student->reportCardSubmittedAt      = null;
-            $student->reportCardReleased         = false;
-            $student->reportCardReleasedAt       = null;
-            $student->reportCardAdminLocked      = false;
+            // Timestamps
+            $student->reportCardSubmittedAt = null;
+            $student->reportCardReleasedAt  = null;
 
             // The grades themselves
             $student->reportCard = [];

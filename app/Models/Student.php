@@ -28,24 +28,15 @@ class Student extends Model
         'isTransferee',
         'previousSchool',
         'reportCard',
-        'reportCardReleased',
         'reportCardReleasedAt',
-        'reportCardSubmittedToAdmin',
         'reportCardSubmittedAt',
-        'reportCardAdminLocked',
         'reportCardSubmittedTerm',
         'reportCardReleasedTerm',
         'reportCardLockedTerm',
     ];
 
-    protected $attributes = [
-        'reportCardReleased' => false,
-    ];
 
     protected $casts = [
-        'reportCardSubmittedToAdmin' => 'boolean',
-        'reportCardAdminLocked'      => 'boolean',
-        'reportCardReleased'         => 'boolean',
         'reportCardSubmittedAt'      => 'datetime',
         'reportCardReleasedAt'       => 'datetime',
     ];

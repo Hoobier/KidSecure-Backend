@@ -105,8 +105,17 @@ class SchoolYearRolloverController extends Controller
         ]);
     }
 
-    public function commit(Request $request)
+        public function commit(Request $request)
     {
+        $resetReportCard = function (Student $student) {
+            $student->reportCard                 = [];
+            $student->reportCardReleased         = false;
+            $student->reportCardReleasedAt       = null;
+            $student->reportCardSubmittedToAdmin = false;
+            $student->reportCardSubmittedAt      = null;
+            $student->reportCardAdminLocked      = false;
+        };
+
         $validator = Validator::make($request->all(), [
             'newSchoolYearLabel' => 'required|string|max:20',
             'decisions' => 'required|array|min:1',
@@ -125,6 +134,7 @@ class SchoolYearRolloverController extends Controller
         $termSetting = TermSetting::current();
         $decisions = $request->input('decisions');
 
+        // ---- Validation loop: only checks, no writes. ----
         $students = [];
         foreach ($decisions as $decision) {
             $student = Student::find($decision['studentId']);
@@ -153,7 +163,7 @@ class SchoolYearRolloverController extends Controller
         // later student in the same batch fails validation.
         $parentUidsToFreeze = [];
 
-        DB::transaction(function () use ($students, $termSetting, $request, &$parentUidsToFreeze) {
+        DB::transaction(function () use ($students, $termSetting, $request, &$parentUidsToFreeze, $resetReportCard) {
             foreach ($students as $entry) {
                 $student = $entry['student'];
                 $action = $entry['action'];
@@ -184,6 +194,7 @@ class SchoolYearRolloverController extends Controller
 
                 if ($action === 'promote') {
                     $student->gradeLevel = GradeLevelService::nextGrade($student->gradeLevel);
+                    $resetReportCard($student);
                     $student->save();
                 } elseif ($action === 'graduate') {
                     $student->enrollmentStatus = 'graduated';
@@ -246,6 +257,35 @@ class SchoolYearRolloverController extends Controller
         }
 
         return response()->json(['message' => 'School year rollover completed.']);
+    }
+
+    /**
+     * GET /api/teacher/classes
+     * Returns the teacher's home + visiting classes for the class dropdown.
+     */
+    public function classes(Request $request)
+    {
+        $teacher = $request->user();
+        $list = [];
+
+        foreach ($teacher->homeAssignments ?? [] as $a) {
+            $list[] = [
+                'gradeLevel'       => $a['gradeLevel'],
+                'section'          => $a['section'],
+                'role'             => 'home',
+                'forteSubjectCode' => $teacher->forteSubjectCode,
+            ];
+        }
+        foreach ($teacher->visitingAssignments ?? [] as $a) {
+            $list[] = [
+                'gradeLevel'       => $a['gradeLevel'],
+                'section'          => $a['section'],
+                'role'             => 'visiting',
+                'forteSubjectCode' => $teacher->forteSubjectCode,
+            ];
+        }
+
+        return response()->json(['data' => $list]);
     }
 
 }

@@ -1,5 +1,5 @@
 <?php
-
+// app/Http/Controllers/TeacherDashboardController.php
 namespace App\Http\Controllers;
 
 use App\Models\AttendanceLog;
@@ -16,11 +16,24 @@ class TeacherDashboardController extends Controller
     public function summary(Request $request)
     {
         $teacher = $request->user();
-        $gradeLevel = $teacher->homeGradeLevel;
+
+        $gradeLevel = $request->query('gradeLevel');
+        $section    = $request->query('section');
+
+        if (!$gradeLevel || !$section) {
+            $fallback = collect($teacher->homeAssignments ?? [])->first();
+            if (!$fallback) {
+                return response()->json(['message' => 'No home class assigned to this teacher.'], 403);
+            }
+            $gradeLevel = $gradeLevel ?? $fallback['gradeLevel'];
+            $section    = $section    ?? $fallback['section'];
+        }
+
         $termNumber = TermSetting::current()->activeTermNumber() ?? 1;
         $term = "T{$termNumber}";
 
         $students = Student::where('gradeLevel', $gradeLevel)
+            ->where('section', $section)
             ->whereIn('enrollmentStatus', ['active', 'inactive'])
             ->get(['studentId', 'firstName', 'lastName', 'reportCard']);
 
@@ -34,7 +47,8 @@ class TeacherDashboardController extends Controller
                 'firstName' => $teacher->firstName,
                 'lastName' => $teacher->lastName,
                 'department' => $teacher->department,
-                'homeGradeLevel' => $teacher->homeGradeLevel,
+                'homeGradeLevel' => $gradeLevel,
+                'homeSection' => $section,
                 'forteSubjectCode' => $teacher->forteSubjectCode,
             ],
             'activeTerm' => $term,
@@ -61,7 +75,7 @@ class TeacherDashboardController extends Controller
             ],
             'teachingLoad' => [
                 'forteSubjectCode' => $teacher->forteSubjectCode,
-                'visitingGrades' => $this->elementaryGradesExcept($gradeLevel),
+                'visitingGrades' => $this->visitingGradesForTeacher($teacher),
             ],
             'pendingBadgeCount' => count($adviserItems) + count($subjectTeacherItems),
         ]));
@@ -159,8 +173,14 @@ class TeacherDashboardController extends Controller
         }
 
         $items = [];
-        foreach ($this->elementaryGradesExcept($teacher->homeGradeLevel) as $gradeLevel) {
+        $visitingByGrade = collect($teacher->visitingAssignments ?? [])
+            ->groupBy('gradeLevel')
+            ->map(fn ($rows) => collect($rows)->pluck('section')->all())
+            ->all();
+
+        foreach ($visitingByGrade as $gradeLevel => $sections) {
             $students = Student::where('gradeLevel', $gradeLevel)
+                ->whereIn('section', $sections)
                 ->whereIn('enrollmentStatus', ['active', 'inactive'])
                 ->get(['reportCard']);
 
@@ -232,14 +252,10 @@ class TeacherDashboardController extends Controller
     }
 
     /**
-     * All elementary grade levels except the given one.
+     * Distinct grade levels this teacher visits (from visitingAssignments).
      */
-    private function elementaryGradesExcept(string $excludeGrade): array
+    private function visitingGradesForTeacher($teacher): array
     {
-        $allGrades = config('school.grade_levels');
-
-        return array_values(array_filter($allGrades, function ($grade) use ($excludeGrade) {
-            return str_starts_with($grade, 'Grade ') && $grade !== $excludeGrade;
-        }));
+        return $teacher->visitingGradeLevels();
     }
 }

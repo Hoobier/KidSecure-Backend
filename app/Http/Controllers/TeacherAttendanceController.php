@@ -1,5 +1,5 @@
 <?php
-
+// app/Http/Controllers/TeacherAttendanceController.php
 namespace App\Http\Controllers;
 
 use App\Models\AttendanceLog;
@@ -10,11 +10,10 @@ use Illuminate\Http\Request;
 class TeacherAttendanceController extends Controller
 {
     /**
-     * GET /api/teacher/attendance-logs
+     * GET /api/teacher/attendance-logs?date=YYYY-MM-DD&gradeLevel=&section=
      *
-     * Roster-style view scoped to the teacher's home grade (all sections).
-     * Every student in the grade appears as a row, present or absent.
-     * Optional: ?date=YYYY-MM-DD (defaults to today, Asia/Manila).
+     * Roster-style view scoped to one {gradeLevel, section} at a time.
+     * Defaults to the teacher's first home assignment.
      */
     public function index(Request $request)
     {
@@ -25,14 +24,26 @@ class TeacherAttendanceController extends Controller
             : Carbon::now('Asia/Manila')->toDateString();
 
         $start = Carbon::parse($date, 'Asia/Manila')->startOfDay()->setTimezone('UTC');
-        $end = Carbon::parse($date, 'Asia/Manila')->endOfDay()->setTimezone('UTC');
+        $end   = Carbon::parse($date, 'Asia/Manila')->endOfDay()->setTimezone('UTC');
 
-        // Base roster: every student in the teacher's home grade, all sections.
-        $students = Student::where('gradeLevel', $teacher->homeGradeLevel)
+        $gradeLevel = $request->query('gradeLevel');
+        $section    = $request->query('section');
+
+        if (!$gradeLevel || !$section) {
+            $fallback = collect($teacher->homeAssignments ?? [])->first();
+            if (!$fallback) {
+                return response()->json(['message' => 'No home class assigned to this teacher.'], 403);
+            }
+            $gradeLevel = $gradeLevel ?? $fallback['gradeLevel'];
+            $section    = $section    ?? $fallback['section'];
+        }
+
+        $students = Student::where('gradeLevel', $gradeLevel)
+            ->where('section', $section)
             ->get(['studentId', 'firstName', 'lastName', 'section']);
 
-        // All taps for this grade's students, for the given day.
         $studentIds = $students->pluck('studentId')->all();
+
         $logs = AttendanceLog::whereIn('studentId', $studentIds)
             ->whereBetween('timestamp', [$start, $end])
             ->orderBy('timestamp', 'asc')
@@ -46,30 +57,29 @@ class TeacherAttendanceController extends Controller
                 return Carbon::parse($log->timestamp)->toIso8601String();
             })->values();
 
-            $hasTaps = $taps->count() > 0;
-            $extraTaps = $taps->count() > 2
-                ? $taps->slice(1, -1)->values()
-                : collect();
+            $hasTaps    = $taps->count() > 0;
+            $extraTaps  = $taps->count() > 2 ? $taps->slice(1, -1)->values() : collect();
 
             return [
-                'studentId' => $student->studentId,
-                'lastName' => $student->lastName,
-                'firstName' => $student->firstName,
-                'section' => $student->section,
-                'status' => $hasTaps ? 'present' : 'absent',
-                'timeIn' => $hasTaps ? $taps->first() : null,
-                'timeOut' => $hasTaps ? $taps->last() : null,
+                'studentId'    => $student->studentId,
+                'lastName'     => $student->lastName,
+                'firstName'    => $student->firstName,
+                'section'      => $student->section,
+                'status'       => $hasTaps ? 'present' : 'absent',
+                'timeIn'       => $hasTaps ? $taps->first() : null,
+                'timeOut'      => $hasTaps ? $taps->last() : null,
                 'hasExtraTaps' => $extraTaps->count() > 0,
-                'extraTaps' => $extraTaps,
+                'extraTaps'    => $extraTaps,
             ];
         });
 
         $sorted = $roster->sortBy('lastName')->values();
 
         return response()->json([
-            'date' => $date,
-            'gradeLevel' => $teacher->homeGradeLevel,
-            'data' => $sorted,
+            'date'       => $date,
+            'gradeLevel' => $gradeLevel,
+            'section'    => $section,
+            'data'       => $sorted,
         ]);
     }
 }

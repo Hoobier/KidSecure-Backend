@@ -1015,9 +1015,10 @@ class StudentController extends Controller
 
     /**
      * POST /api/students/{id}/report-card
-     * Trisem report card: T1/T2/T3, each with a midterm and finals grade per subject.
-     * Grades are admin-entered final marks; the frontend already sanitizes input to
-     * digits + a single decimal, so no numeric range validation is enforced here.
+     *
+     * Admin edit mode. Admin can write any subject, any term, at any time
+     * after submission. Every change against a compiled entry logs a
+     * ReportCardRevision (required note). Grades are sanitized client-side.
      */
     public function saveReportCard(Request $request, $id)
     {
@@ -1036,44 +1037,36 @@ class StudentController extends Controller
                     }
                 }
             }],
-            'grades.*.T1.grade' => 'nullable|numeric|min:0|max:100',
-            'grades.*.T1.status' => 'nullable|in:draft,submitted,compiled,pending',
-            'grades.*.T2.grade' => 'nullable|numeric|min:0|max:100',
-            'grades.*.T2.status' => 'nullable|in:draft,submitted,compiled,pending',
-            'grades.*.T3.grade' => 'nullable|numeric|min:0|max:100',
-            'grades.*.T3.status' => 'nullable|in:draft,submitted,compiled,pending',
+            'grades.*.T1.grade'  => 'nullable|numeric|min:0|max:100',
+            'grades.*.T2.grade'  => 'nullable|numeric|min:0|max:100',
+            'grades.*.T3.grade'  => 'nullable|numeric|min:0|max:100',
             'note' => 'nullable|string|max:500',
         ]);
-
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
         $incoming = $request->input('grades');
         $existing = $student->reportCard ?? [];
-        $note = $request->input('note');
-        $touchedFinalized = false;
+        $note     = $request->input('note');
 
         foreach ($incoming as $subjectCode => $terms) {
             foreach ($terms as $term => $entry) {
+                if (!in_array($term, ['T1', 'T2', 'T3'], true)) continue;
+
                 $oldEntry  = $existing[$subjectCode][$term] ?? null;
                 $oldStatus = $oldEntry['status'] ?? null;
                 $oldGrade  = $oldEntry['grade'] ?? null;
                 $newGrade  = $entry['grade'] ?? null;
-                $newStatus = $entry['status'] ?? null;
 
-                $changed = $oldGrade != $newGrade || $oldStatus != $newStatus;
-                $wasFinalized = $oldStatus === 'compiled' || $student->reportCardReleased;
+                $changed = (string) $oldGrade !== (string) $newGrade;
 
-                if ($changed && $wasFinalized) {
+                if ($changed && $oldStatus === 'compiled') {
                     if (empty($note)) {
                         return response()->json([
-                            'message' => "A note is required when editing an already compiled or released entry ({$subjectCode} {$term}).",
+                            'message' => "A note is required when editing a compiled entry ({$subjectCode} {$term}).",
                         ], 422);
                     }
-
-                    $touchedFinalized = true;
-
                     ReportCardRevision::create([
                         'studentId'   => $student->studentId,
                         'subjectCode' => $subjectCode,
@@ -1082,67 +1075,95 @@ class StudentController extends Controller
                         'changedAt'   => now(),
                     ]);
                 }
+
+                $existing[$subjectCode][$term] = [
+                    'grade'  => $newGrade,
+                    'status' => $oldStatus,
+                ];
+
+                // If admin changes a submitted/compiled entry, drop it back to
+                // compiled — because admin is the highest authority and their
+                // edit is final, so we don't want it stuck in "submitted" state.
+                if ($changed && in_array($oldStatus, ['submitted'], true)) {
+                    $existing[$subjectCode][$term]['status'] = 'compiled';
+                }
             }
         }
 
-        $student->reportCard = $incoming;
+        $student->reportCard = $existing;
         $student->save();
 
-        if ($touchedFinalized && $student->reportCardReleased) {
-            $student->reportCardReleased = false;
-            $student->reportCardReleasedAt = null;
-            $student->save();
-
-            try {
-                app(FirebaseRealtimeService::class)->removeReportCard($student->studentId);
-            } catch (\Throwable $e) {
-                \Log::error("RTDB removeReportCard failed after edit-triggered unrelease for {$student->studentId}: " . $e->getMessage());
-            }
-        } elseif ($student->reportCardReleased) {
+        // If the card is already released, re-mirror so the parent app sees
+        // the correction immediately.
+        if ($student->reportCardReleased ?? false) {
             try {
                 app(FirebaseRealtimeService::class)->mirrorReportCard($student);
             } catch (\Throwable $e) {
-                \Log::error("RTDB mirrorReportCard failed after report card save for {$student->studentId}: " . $e->getMessage());
+                \Log::error("RTDB mirrorReportCard failed after admin edit for {$student->studentId}: " . $e->getMessage());
             }
         }
 
         return response()->json([
             'message' => 'Report card saved.',
             'data' => [
-                'grades' => $student->reportCard,
-                'reportCardReleased' => $student->reportCardReleased,
-                'reportCardReleasedAt' => $student->reportCardReleasedAt,
+                'grades'                    => $student->reportCard,
+                'reportCardReleased'        => $student->reportCardReleased ?? false,
+                'reportCardReleasedAt'      => $student->reportCardReleasedAt ?? null,
+                'reportCardAdminLocked'     => $student->reportCardAdminLocked ?? false,
             ],
         ]);
     }
 
     /**
      * POST /api/students/{id}/report-card/release
+     * First release sets reportCardAdminLocked = true (permanently).
      */
-    public function releaseReportCard($id)
+    public function releaseReportCard(Request $request, $id)
     {
         $student = Student::find($id);
         if (!$student) {
             return response()->json(['message' => 'Student not found.'], 404);
         }
 
-        $student->reportCardReleased = true;
-        $student->reportCardReleasedAt = now();
+        $validator = Validator::make($request->all(), [
+            'term' => 'required|in:T1,T2,T3',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $term = $request->input('term');
+
+        $student->reportCardReleasedTerm     = $term;
+        $student->reportCardLockedTerm       = $term;
+        $student->reportCardSubmittedTerm    = null;
+
+        // Keep legacy flags in sync for now (Phase 5 removes them).
+        $student->reportCardReleased         = true;
+        $student->reportCardReleasedAt       = now();
+        $student->reportCardAdminLocked      = true;
+        $student->reportCardSubmittedToAdmin = false;
+
         $student->save();
 
-        app(FirebaseRealtimeService::class)->mirrorReportCard($student);
+        try {
+            app(FirebaseRealtimeService::class)->mirrorReportCard($student);
+        } catch (\Throwable $e) {
+            \Log::error("RTDB mirrorReportCard failed after admin release for {$student->studentId}: " . $e->getMessage());
+        }
 
         return response()->json([
             'message' => 'Report card released.',
             'data' => [
-                'reportCardReleased' => true,
-                'reportCardReleasedAt' => $student->reportCardReleasedAt,
+                'reportCardReleasedTerm' => $term,
+                'reportCardLockedTerm'   => $term,
             ],
         ]);
     }
 
     /**
      * POST /api/students/{id}/report-card/unrelease
+     * Pulls the card back from the parent app. Does NOT clear adminLocked.
      */
     public function unreleaseReportCard($id)
     {
@@ -1151,18 +1172,149 @@ class StudentController extends Controller
             return response()->json(['message' => 'Student not found.'], 404);
         }
 
-        $student->reportCardReleased = false;
+        $student->reportCardReleasedTerm = null;
+        // reportCardLockedTerm deliberately STAYS — once a term is locked,
+        // it remains locked forever. Only the released flag is cleared.
+
+        // Keep legacy flags in sync.
+        $student->reportCardReleased   = false;
         $student->reportCardReleasedAt = null;
+
         $student->save();
 
-        app(FirebaseRealtimeService::class)->removeReportCard($student->studentId);
+        try {
+            app(FirebaseRealtimeService::class)->removeReportCard($student->studentId);
+        } catch (\Throwable $e) {
+            \Log::error("RTDB removeReportCard failed after admin unrelease for {$student->studentId}: " . $e->getMessage());
+        }
 
         return response()->json([
             'message' => 'Report card release revoked.',
             'data' => [
-                'reportCardReleased' => false,
-                'reportCardReleasedAt' => null,
+                'reportCardReleasedTerm' => null,
+                'reportCardLockedTerm'   => $student->reportCardLockedTerm,
             ],
+        ]);
+    }
+
+    /**
+     * GET /api/report-cards/pending
+     * All cards submitted to admin, grouped by grade → section.
+     */
+    public function pendingReportCards(Request $request)
+    {
+        $term = $request->query('term');
+        if (!$term || !in_array($term, ['T1', 'T2', 'T3'], true)) {
+            $termNumber = \App\Models\TermSetting::current()->activeTermNumber() ?? 1;
+            $term = "T{$termNumber}";
+        }
+
+        $students = Student::where('reportCardSubmittedTerm', $term)
+            ->whereIn('enrollmentStatus', ['active', 'inactive'])
+            ->orderBy('gradeLevel')
+            ->orderBy('section')
+            ->orderBy('lastName')
+            ->orderBy('firstName')
+            ->get();
+
+        $grouped = [];
+        foreach ($students as $s) {
+            $grade   = $s->gradeLevel;
+            $section = $s->section;
+            if (!isset($grouped[$grade])) $grouped[$grade] = [];
+            if (!isset($grouped[$grade][$section])) {
+                $grouped[$grade][$section] = [
+                    'gradeLevel' => $grade,
+                    'section'    => $section,
+                    'count'      => 0,
+                ];
+            }
+            $grouped[$grade][$section]['count']++;
+        }
+
+        $order = array_flip(config('school.grade_levels'));
+        $list = [];
+        foreach ($grouped as $grade => $sections) {
+            foreach ($sections as $sec => $info) {
+                $info['gradeOrder'] = $order[$grade] ?? 999;
+                $list[] = $info;
+            }
+        }
+        usort($list, fn ($a, $b) => [$a['gradeOrder'], $a['section']] <=> [$b['gradeOrder'], $b['section']]);
+
+        return response()->json([
+            'term' => $term,
+            'data' => $list,
+        ]);
+    }
+
+    public function reportCardsBySection(Request $request, string $gradeLevel, string $section)
+    {
+        $term = $request->query('term');
+        if (!$term || !in_array($term, ['T1', 'T2', 'T3'], true)) {
+            $termNumber = \App\Models\TermSetting::current()->activeTermNumber() ?? 1;
+            $term = "T{$termNumber}";
+        }
+
+        $students = Student::where('gradeLevel', $gradeLevel)
+            ->where('section', $section)
+            ->whereIn('enrollmentStatus', ['active', 'inactive'])
+            ->orderBy('lastName')
+            ->orderBy('firstName')
+            ->get();
+
+        $data = $students->map(function ($s) {
+            return [
+                'id'                         => (string) $s->_id,
+                'studentId'                  => $s->studentId,
+                'fullName'                   => trim("{$s->firstName} {$s->lastName}"),
+                'gradeLevel'                 => $s->gradeLevel,
+                'section'                    => $s->section,
+                'reportCard'                 => $s->reportCard ?? new \stdClass(),
+                'reportCardSubmittedTerm'    => $s->reportCardSubmittedTerm ?? null,
+                'reportCardReleasedTerm'     => $s->reportCardReleasedTerm ?? null,
+                'reportCardLockedTerm'       => $s->reportCardLockedTerm ?? null,
+                'reportCardReleasedAt'       => $s->reportCardReleasedAt ?? null,
+                // legacy fields kept for now
+                'reportCardSubmittedToAdmin' => (bool) ($s->reportCardSubmittedToAdmin ?? false),
+                'reportCardReleased'         => (bool) ($s->reportCardReleased ?? false),
+                'reportCardAdminLocked'      => (bool) ($s->reportCardAdminLocked ?? false),
+            ];
+        });
+
+        return response()->json([
+            'gradeLevel' => $gradeLevel,
+            'section'    => $section,
+            'term'       => $term,
+            'data'       => $data,
+        ]);
+    }
+
+    public function releasedSections(Request $request)
+    {
+        $term = $request->query('term');
+        if (!$term || !in_array($term, ['T1', 'T2', 'T3'], true)) {
+            $termNumber = \App\Models\TermSetting::current()->activeTermNumber() ?? 1;
+            $term = "T{$termNumber}";
+        }
+
+        $students = Student::where('reportCardReleasedTerm', $term)
+            ->whereIn('enrollmentStatus', ['active', 'inactive'])
+            ->get(['gradeLevel', 'section']);
+
+        $pairs = [];
+        foreach ($students as $s) {
+            $key = $s->gradeLevel . '|' . $s->section;
+            $pairs[$key] = ['gradeLevel' => $s->gradeLevel, 'section' => $s->section];
+        }
+
+        $order = array_flip(config('school.grade_levels'));
+        $list = array_values($pairs);
+        usort($list, fn ($a, $b) => [$order[$a['gradeLevel']] ?? 999, $a['section']] <=> [$order[$b['gradeLevel']] ?? 999, $b['section']]);
+
+        return response()->json([
+            'term' => $term,
+            'data' => $list,
         ]);
     }
 }

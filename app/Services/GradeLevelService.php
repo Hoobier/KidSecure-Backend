@@ -16,7 +16,7 @@ class GradeLevelService
 
     public static function isRegularEnrollmentGrade(string $gradeLevel): bool
     {
-        return in_array($gradeLevel, ['Nursery', 'Grade 1'], true);
+        return in_array($gradeLevel, ['Nursery', 'Kindergarten', 'Preparatory', 'Grade 1'], true);
     }
 
     public static function isEnrollmentTypeAllowed(string $gradeLevel, bool $isTransferee): bool

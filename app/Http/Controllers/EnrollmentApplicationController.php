@@ -60,7 +60,7 @@ class EnrollmentApplicationController extends Controller
             // Guest form never asks for a section — the admin picks one
             // here at approval time.
             'section' => $request->input('section'),
-            'isTransferee' => !empty($academicApp['previousSchool']),
+            'isTransferee' => !GradeLevelService::isRegularEnrollmentGrade($academicApp['gradeLevel'] ?? ''),
             'previousSchool' => $academicApp['previousSchool'] ?? null,
             'documents' => $this->flattenApplicationDocuments($application->documents ?? []),
         ];
@@ -167,8 +167,14 @@ class EnrollmentApplicationController extends Controller
     {
         $payload = json_decode($request->input('data', '{}'), true) ?: [];
 
-        $isTransferee = filter_var($payload['isTransferee'] ?? false, FILTER_VALIDATE_BOOLEAN);
         $documentsFollowUp = filter_var($payload['documentsFollowUp'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        // Transferee status is derived server-side from the selected grade —
+        // it is no longer a client-supplied flag, so it can't be spoofed to
+        // skip the extra document requirements below.
+        $gradeLevelInput = $payload['academic']['gradeLevel'] ?? '';
+        $isTransferee = GradeLevelService::isValidGrade($gradeLevelInput)
+         ? !GradeLevelService::isRegularEnrollmentGrade($gradeLevelInput)
+         : false;
 
         $validator = Validator::make($payload, [
             'student.firstName' => 'required|string|max:50',
@@ -189,8 +195,8 @@ class EnrollmentApplicationController extends Controller
 
                 if (!GradeLevelService::isEnrollmentTypeAllowed($value, $isTransferee)) {
                     $fail($isTransferee
-                        ? 'Nursery and Grade 1 students must be enrolled as Regular students.'
-                        : 'Kindergarten, Preparatory, and Grades 2 to 6 students must be enrolled as Transferees.');
+                        ? 'Nursery, Kindergarten, Preparatory, and Grade 1 students must be enrolled as Regular students.'
+                        : 'Grade 2 to Grade 6 students must be enrolled as Transferees.');
                 }
             }],
             'academic.previousSchool' => $isTransferee ? 'required|string' : 'nullable|string',
@@ -210,7 +216,8 @@ class EnrollmentApplicationController extends Controller
         if (!$documentsFollowUp) {
             $requiredDocs = ['birth_certificate', 'id_picture_1x1'];
             if ($isTransferee) {
-                $requiredDocs[] = 'form_138'; // good_moral stays optional even for transferees
+                $requiredDocs[] = 'form_138';
+                $requiredDocs[] = 'good_moral';
             }
 
             $missingDocs = array_values(array_filter(

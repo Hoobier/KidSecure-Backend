@@ -28,4 +28,12 @@ return Application::configure(basePath: dirname(__DIR__))
     
     ->withExceptions(function (Exceptions $exceptions): void {
         //
-    })->create();
+    })
+    
+    ->withCommands([
+        \App\Console\Commands\MigrateTeacherAssignments::class,
+        \App\Console\Commands\MigrateReportCardFlags::class,
+        \App\Console\Commands\MigrateReportCardTerms::class,
+    ])->create();
+
+    

@@ -30,6 +30,12 @@ class Student extends Model
         'reportCard',
         'reportCardReleased',
         'reportCardReleasedAt',
+        'reportCardSubmittedToAdmin',
+        'reportCardSubmittedAt',
+        'reportCardAdminLocked',
+        'reportCardSubmittedTerm',
+        'reportCardReleasedTerm',
+        'reportCardLockedTerm',
     ];
 
     protected $attributes = [
@@ -37,8 +43,11 @@ class Student extends Model
     ];
 
     protected $casts = [
-        'reportCardReleased' => 'boolean',
-        'reportCardReleasedAt' => 'datetime',
+        'reportCardSubmittedToAdmin' => 'boolean',
+        'reportCardAdminLocked'      => 'boolean',
+        'reportCardReleased'         => 'boolean',
+        'reportCardSubmittedAt'      => 'datetime',
+        'reportCardReleasedAt'       => 'datetime',
     ];
 
     public function upsertDocument(array $newDocument): void

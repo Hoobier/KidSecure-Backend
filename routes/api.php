@@ -19,6 +19,7 @@ use App\Http\Controllers\TermSettingController;
 use App\Http\Controllers\SchoolYearRolloverController;
 use App\Http\Controllers\TeacherStudentController;
 use App\Http\Controllers\TeacherDashboardController;
+use App\Http\Controllers\TeacherController;
 
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/password/forgot', [PasswordController::class, 'forgotPassword']);
@@ -83,6 +84,19 @@ Route::middleware(['auth:sanctum', 'actor:admin'])->group(function () {
     Route::delete('/guest/enrollments/{id}', [EnrollmentApplicationController::class, 'destroy']);
     Route::get('/school-year/rollover-preview', [SchoolYearRolloverController::class, 'preview']);
     Route::post('/school-year/rollover-commit', [SchoolYearRolloverController::class, 'commit']);
+
+        // Teachers
+    Route::get('/teachers', [TeacherController::class, 'index']);
+    Route::post('/teachers', [TeacherController::class, 'store']);
+    Route::get('/teachers/{id}', [TeacherController::class, 'show']);
+    Route::patch('/teachers/{id}', [TeacherController::class, 'update']);
+    Route::post('/teachers/{id}/delete', [TeacherController::class, 'softDelete']);
+    Route::post('/teachers/{id}/restore', [TeacherController::class, 'restore']);
+    Route::post('/teachers/{id}/resend-credentials', [TeacherController::class, 'resendCredentials']);
+
+    Route::get('/report-cards/pending', [StudentController::class, 'pendingReportCards']);
+    Route::get('/report-cards/grade/{gradeLevel}/section/{section}', [StudentController::class, 'reportCardsBySection']);
+    Route::get('/report-cards/released-sections', [StudentController::class, 'releasedSections']);
 });
 
 Route::middleware(['auth:sanctum', 'actor:teacher'])->prefix('teacher')->group(function () {
@@ -92,9 +106,12 @@ Route::middleware(['auth:sanctum', 'actor:teacher'])->prefix('teacher')->group(f
     Route::get('/students/{id}', [TeacherStudentController::class, 'show']);
     Route::post('/students/{id}/report-card', [TeacherStudentController::class, 'saveReportCard']);
     Route::post('/students/{id}/report-card/compile', [TeacherStudentController::class, 'compileReportCard']);
-    Route::post('/students/{id}/report-card/release', [TeacherStudentController::class, 'releaseReportCard']);
-    Route::post('/students/{id}/report-card/unrelease', [TeacherStudentController::class, 'unreleaseReportCard']);
+    Route::post('/students/{id}/report-card/submit', [TeacherStudentController::class, 'submitReportCard']);
+    Route::post('/students/{id}/report-card/compile', [TeacherStudentController::class, 'compileReportCard']);
+    Route::post('/students/{id}/report-card/submit-to-admin', [TeacherStudentController::class, 'submitToAdmin']);
+    Route::post('/students/{id}/report-card/recall', [TeacherStudentController::class, 'recallSubmission']);
     Route::get('/dashboard/summary', [TeacherDashboardController::class, 'summary']);
+    Route::get('/classes', [TeacherStudentController::class, 'classes']);
 });
 
 // Flutter parent app — Firebase ID token auth, completely separate

@@ -117,9 +117,29 @@ class FirebaseRealtimeService
             return;
         }
 
+        $term = $student->reportCardReleasedTerm ?? null;
+
+        // Nothing is currently released for this student → make sure
+        // Firebase doesn't have a stale card lying around.
+        if (!$term) {
+            $this->db
+                ->getReference("students/{$student->studentId}/reportCard")
+                ->remove();
+            return;
+        }
+
+        // Build a term-scoped view: { SUBJECT: { T2: { grade, status } }, ... }
+        $card = $student->reportCard ?? [];
+        $scoped = [];
+        foreach ($card as $subjectCode => $terms) {
+            if (isset($terms[$term])) {
+                $scoped[$subjectCode] = [$term => $terms[$term]];
+            }
+        }
+
         $this->db
             ->getReference("students/{$student->studentId}/reportCard")
-            ->set($student->reportCard);
+            ->set($scoped);
     }
 
     public function removeReportCard(string $studentId): void

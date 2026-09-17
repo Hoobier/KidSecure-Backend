@@ -105,15 +105,24 @@ class SchoolYearRolloverController extends Controller
         ]);
     }
 
-        public function commit(Request $request)
+    public function commit(Request $request)
     {
         $resetReportCard = function (Student $student) {
-            $student->reportCard                 = [];
-            $student->reportCardReleased         = false;
-            $student->reportCardReleasedAt       = null;
+            // Term-scoped fields
+            $student->reportCardSubmittedTerm = null;
+            $student->reportCardReleasedTerm  = null;
+            $student->reportCardLockedTerm    = null;
+
+            // Legacy flat flags (Phase 5 removes these; keep them in sync
+            // for now so anything still reading them behaves correctly)
             $student->reportCardSubmittedToAdmin = false;
             $student->reportCardSubmittedAt      = null;
+            $student->reportCardReleased         = false;
+            $student->reportCardReleasedAt       = null;
             $student->reportCardAdminLocked      = false;
+
+            // The grades themselves
+            $student->reportCard = [];
         };
 
         $validator = Validator::make($request->all(), [

@@ -33,6 +33,9 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withCommands([
         \App\Console\Commands\MigrateTeacherAssignments::class,
         \App\Console\Commands\CleanupLegacyReportCardFlags::class,
+        \App\Console\Commands\MigrateMapehToComponents::class,
+        \App\Console\Commands\ReportMapehForte::class,
+        \App\Console\Commands\RemirrorReleasedCards::class,
     ])->create();
 
     

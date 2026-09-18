@@ -1009,6 +1009,7 @@ class StudentController extends Controller
                 'grades' => $student->reportCard ?? new \stdClass(),
                 'reportCardReleasedTerm' => $student->reportCardReleasedTerm ?? null,
                 'reportCardReleasedAt' => $student->reportCardReleasedAt ?? null,
+                'reportCardLockedTerm' => $student->reportCardLockedTerm ?? null,
             ],
         ]);
     }
@@ -1263,6 +1264,7 @@ class StudentController extends Controller
                 'section'                    => $s->section,
                 'reportCard'                 => $s->reportCard ?? new \stdClass(),
                 'reportCardSubmittedTerm'    => $s->reportCardSubmittedTerm ?? null,
+                'reportCardSubmittedAt'      => $s->reportCardSubmittedAt ?? null,
                 'reportCardReleasedTerm'     => $s->reportCardReleasedTerm ?? null,
                 'reportCardLockedTerm'       => $s->reportCardLockedTerm ?? null,
                 'reportCardReleasedAt'       => $s->reportCardReleasedAt ?? null,

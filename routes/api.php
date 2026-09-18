@@ -20,6 +20,7 @@ use App\Http\Controllers\SchoolYearRolloverController;
 use App\Http\Controllers\TeacherStudentController;
 use App\Http\Controllers\TeacherDashboardController;
 use App\Http\Controllers\TeacherController;
+use App\Http\Controllers\SubjectController;
 
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/password/forgot', [PasswordController::class, 'forgotPassword']);
@@ -32,6 +33,8 @@ Route::get('/user', function (Request $request) {
 Route::get('/ping', function () {
     return response()->json(['status' => 'awake']);
 });
+
+Route::middleware('auth:sanctum')->get('/subjects-by-grade', [SubjectController::class, 'index']);
 
 Route::post('/guest/enrollments', [EnrollmentApplicationController::class, 'store']);
 Route::get('/guest/enrollments/lookup', [EnrollmentApplicationController::class, 'lookup']);

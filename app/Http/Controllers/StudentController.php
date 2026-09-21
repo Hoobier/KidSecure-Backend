@@ -328,6 +328,7 @@ class StudentController extends Controller
                 'status'        => $student->enrollmentStatus ?? 'active',
                 'isTransferee'  => $student->isTransferee ?? false,
                 'previousSchool' => $student->previousSchool ?? null,
+                'archivedAt'    => $student->archivedAt ?? null,
             ];
         });
 
@@ -381,6 +382,7 @@ class StudentController extends Controller
                 'documents'      => $student->documents ?? [],
                 'isTransferee'   => $student->isTransferee ?? false,  
                 'previousSchool' => $student->previousSchool ?? null,
+                'archivedAt'     => $student->archivedAt ?? null,
                 'parent'      => $parent ? [
                     'id'          => $parent->_id,
                     'fullName'    => trim("{$parent->firstName} {$parent->lastName}"),
@@ -698,6 +700,7 @@ class StudentController extends Controller
         $student->previousSchool = $request->input('previousSchool');
         $student->isTransferee = true;
         $student->enrollmentStatus = 'active';
+        $student->archivedAt = null;
         $student->save();
 
         if (!empty($student->rfidTag)) {
@@ -710,12 +713,18 @@ class StudentController extends Controller
         try {
             $parentAccount = ParentAccount::find($student->parentId);
 
-            if ($parentAccount && !empty($parentAccount->firebaseUid)) {
-                $firebase = app(FirebaseService::class);
-                $status = $firebase->getParentAccountStatus($parentAccount->firebaseUid);
+            if ($parentAccount) {
+                if ($parentAccount->archivedAt) {
+                    $parentAccount->archivedAt = null;
+                    $parentAccount->save();
+                }
+                if (!empty($parentAccount->firebaseUid)) {
+                    $firebase = app(FirebaseService::class);
+                    $status = $firebase->getParentAccountStatus($parentAccount->firebaseUid);
 
-                if ($status === 'frozen') {
-                    $firebase->enableParentAccount($parentAccount->firebaseUid);
+                    if ($status === 'frozen') {
+                        $firebase->enableParentAccount($parentAccount->firebaseUid);
+                    }
                 }
             }
         } catch (\Throwable $e) {
@@ -782,88 +791,7 @@ class StudentController extends Controller
         return response()->json(['message' => 'Student restored successfully.']);
     }
 
-    public function forceDelete($id)
-    {
-        $student = Student::find($id);
 
-        if (!$student) {
-            return response()->json(['message' => 'Student not found.'], 404);
-        }
-
-        if (!in_array($student->enrollmentStatus, ['deleted', 'transferred_out'], true)) {
-            return response()->json([
-                'message' => 'This student must be in Deleted Students or Transferred Students before it can be permanently deleted.',
-            ], 422);
-        }
-
-        $studentFullName = trim($student->firstName . ' ' . $student->lastName);
-        $studentIdLabel = $student->studentId;
-
-        try {
-            $uploadService = app(\App\Services\DocumentUploadService::class);
-            foreach ($student->documents ?? [] as $doc) {
-                if (is_array($doc) && !empty($doc['public_id'])) {
-                    try {
-                        $uploadService->delete($doc['public_id'], $doc['resource_type'] ?? 'image');
-                    } catch (\Throwable $e) {
-                        \Log::error('Failed to delete Cloudinary asset during student delete', [
-                            'public_id' => $doc['public_id'],
-                            'error' => $e->getMessage(),
-                        ]);
-                    }
-                }
-            }
-        } catch (\Throwable $e) {
-            \Log::error("Student document cleanup failed for {$studentIdLabel}: " . $e->getMessage());
-        }
-
-        try {
-            if (!empty($student->rfidTag)) {
-                \App\Models\RfidCard::where('tagId', $student->rfidTag)->update([
-                    'status' => 'inactive',
-                    'deactivatedDate' => now(),
-                ]);
-            }
-        } catch (\Throwable $e) {
-            \Log::error("RFID cleanup failed for student {$studentIdLabel}: " . $e->getMessage());
-        }
-
-        try {
-            app(FirebaseRealtimeService::class)->removeStudent($student->studentId);
-        } catch (\Throwable $e) {
-            \Log::error("RTDB cleanup failed for student {$studentIdLabel}: " . $e->getMessage());
-        }
-
-        try {
-            $linkedParents = ParentAccount::whereIn('studentIds', [(string) $student->_id])->get();
-            foreach ($linkedParents as $parent) {
-                try {
-                    $parent->studentIds = array_values(array_diff($parent->studentIds ?? [], [(string) $student->_id]));
-                    $parent->save();
-                } catch (\Throwable $e) {
-                    \Log::error("Parent linkage cleanup failed for parent {$parent->_id} and student {$studentIdLabel}: " . $e->getMessage());
-                }
-            }
-        } catch (\Throwable $e) {
-            \Log::error("Parent linkage cleanup failed for student {$studentIdLabel}: " . $e->getMessage());
-        }
-
-        try {
-            \App\Models\AttendanceLog::where('studentId', $student->studentId)->delete();
-        } catch (\Throwable $e) {
-            \Log::error("Attendance cleanup failed for student {$studentIdLabel}: " . $e->getMessage());
-        }
-
-        try {
-            \App\Models\AcademicRecord::where('studentId', $student->studentId)->delete();
-        } catch (\Throwable $e) {
-            \Log::error("Academic record cleanup failed for student {$studentIdLabel}: " . $e->getMessage());
-        }
-
-        $student->delete();
-
-        return response()->json(['message' => "{$studentFullName} has been permanently deleted."]);
-    }
 
     /**
      * POST /api/students/{id}/reassign-rfid
@@ -971,6 +899,12 @@ class StudentController extends Controller
         $student->parentId = (string) $newParent->_id;
         $student->save();
 
+        // Give the new parent an active student — un-archive them if needed.
+        if ($newParent->archivedAt) {
+            $newParent->archivedAt = null;
+            $newParent->save();
+        }
+
         // Both parents' linked-student lists changed, so both need remirroring.
         try {
             $realtime = app(FirebaseRealtimeService::class);
@@ -1009,7 +943,7 @@ class StudentController extends Controller
                 'grades' => $student->reportCard ?? new \stdClass(),
                 'reportCardReleasedTerm' => $student->reportCardReleasedTerm ?? null,
                 'reportCardReleasedAt' => $student->reportCardReleasedAt ?? null,
-                'reportCardLockedTerm' => $student->reportCardLockedTerm ?? null,
+                'reportCardLockedTerms' => $student->reportCardLockedTerms ?? [],
             ],
         ]);
     }
@@ -1135,7 +1069,12 @@ class StudentController extends Controller
         $term = $request->input('term');
 
         $student->reportCardReleasedTerm     = $term;
-        $student->reportCardLockedTerm       = $term;
+        $locked = $student->reportCardLockedTerms ?? [];
+        if (!is_array($locked)) $locked = [];
+        if (!in_array($term, $locked, true)) {
+            $locked[] = $term;
+        }
+        $student->reportCardLockedTerms = array_values($locked);
         $student->reportCardSubmittedTerm    = null;
         $student->reportCardReleasedAt       = now();
 
@@ -1151,7 +1090,7 @@ class StudentController extends Controller
             'message' => 'Report card released.',
             'data' => [
                 'reportCardReleasedTerm' => $term,
-                'reportCardLockedTerm'   => $term,
+                'reportCardLockedTerms'   => array_values($locked),
             ],
         ]);
     }
@@ -1168,7 +1107,7 @@ class StudentController extends Controller
         }
 
         $student->reportCardReleasedTerm = null;
-        // reportCardLockedTerm deliberately STAYS — once a term is locked,
+        // reportCardLockedTerms deliberately STAYS — once a term is locked,
         // it remains locked forever. Only the released flag is cleared.
         $student->reportCardReleasedAt = null;
 
@@ -1184,7 +1123,7 @@ class StudentController extends Controller
             'message' => 'Report card release revoked.',
             'data' => [
                 'reportCardReleasedTerm' => null,
-                'reportCardLockedTerm'   => $student->reportCardLockedTerm,
+                'reportCardLockedTerms'   => $student->reportCardLockedTerms,
             ],
         ]);
     }
@@ -1266,7 +1205,7 @@ class StudentController extends Controller
                 'reportCardSubmittedTerm'    => $s->reportCardSubmittedTerm ?? null,
                 'reportCardSubmittedAt'      => $s->reportCardSubmittedAt ?? null,
                 'reportCardReleasedTerm'     => $s->reportCardReleasedTerm ?? null,
-                'reportCardLockedTerm'       => $s->reportCardLockedTerm ?? null,
+                'reportCardLockedTerms'       => $s->reportCardLockedTerms ?? [],
                 'reportCardReleasedAt'       => $s->reportCardReleasedAt ?? null,
             ];
         });
@@ -1287,7 +1226,7 @@ class StudentController extends Controller
             $term = "T{$termNumber}";
         }
 
-        $students = Student::where('reportCardLockedTerm', $term)
+        $students = Student::where('reportCardLockedTerms', $term)
             ->whereIn('enrollmentStatus', ['active', 'inactive'])
             ->get(['gradeLevel', 'section']);
 
@@ -1305,5 +1244,53 @@ class StudentController extends Controller
             'term' => $term,
             'data' => $list,
         ]);
+    }
+
+        /**
+     * POST /api/students/{id}/archive
+     * Manually archive a student (removes them from the active list, but
+     * preserves their record on the Archived page).
+     */
+    public function archive($id)
+    {
+        $student = Student::find($id);
+        if (!$student) {
+            return response()->json(['message' => 'Student not found.'], 404);
+        }
+
+        if (in_array($student->enrollmentStatus, ['graduated', 'transferred_out'], true)) {
+            return response()->json(['message' => 'This student is already archived.'], 422);
+        }
+        if ($student->enrollmentStatus === 'deleted') {
+            return response()->json(['message' => 'Cannot archive a deleted student. Restore them first.'], 422);
+        }
+
+        $student->archivedAt = now();
+        $student->save();
+
+        return response()->json(['message' => 'Student archived.']);
+    }
+
+    /**
+     * POST /api/students/{id}/unarchive
+     * Clears the archivedAt timestamp. Only valid for students in the
+     * graduated / transferred_out state — those are the only statuses the
+     * archive flow covers.
+     */
+    public function unarchive($id)
+    {
+        $student = Student::find($id);
+        if (!$student) {
+            return response()->json(['message' => 'Student not found.'], 404);
+        }
+
+        if (!in_array($student->enrollmentStatus, ['graduated', 'transferred_out'], true)) {
+            return response()->json(['message' => 'Only graduated or transferred-out students can be unarchived.'], 422);
+        }
+
+        $student->archivedAt = null;
+        $student->save();
+
+        return response()->json(['message' => 'Student unarchived.']);
     }
 }

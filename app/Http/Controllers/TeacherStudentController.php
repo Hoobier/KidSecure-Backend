@@ -16,15 +16,18 @@ class TeacherStudentController extends Controller
     // ------------------------------------------------------------------
     // Access resolution (unchanged from Spec 1)
     // ------------------------------------------------------------------
-    private function resolveAccess($teacher, string $studentGradeLevel, string $studentSection): ?string
+    /**
+     * Returns ['role' => 'home'|'visiting', 'subjects' => [...]] for the
+     * given class, or null when the teacher has no assignment here.
+     * Home role wins when the teacher holds the class both ways.
+     */
+    private function resolveAccess($teacher, string $gradeLevel, string $section): ?array
     {
-        if ($teacher->isHomeSection($studentGradeLevel, $studentSection)) {
-            return 'home';
-        }
-        if ($teacher->isVisitingSection($studentGradeLevel, $studentSection)) {
-            return 'visiting';
-        }
-        return null;
+        $subjects = $teacher->subjectsFor($gradeLevel, $section);
+        if (empty($subjects)) return null;
+
+        $role = $teacher->isHomeSection($gradeLevel, $section) ? 'home' : 'visiting';
+        return ['role' => $role, 'subjects' => $subjects];
     }
 
     /**
@@ -34,8 +37,10 @@ class TeacherStudentController extends Controller
      */
     private function rejectIfTermLocked(Student $student, string $term)
     {
-        $lockedTerm = $student->reportCardLockedTerm ?? null;
-        if ($lockedTerm && $lockedTerm === $term) {
+        $lockedTerms = $student->reportCardLockedTerms ?? [];
+        if (!is_array($lockedTerms)) $lockedTerms = [];
+
+        if (in_array($term, $lockedTerms, true)) {
             return response()->json([
                 'message' => "This {$term} report card is now managed by the school office. Contact the admin for any changes.",
             ], 423);
@@ -65,7 +70,6 @@ class TeacherStudentController extends Controller
         }
 
         $access = $this->resolveAccess($teacher, $gradeLevel, $section);
-
         if (!$access) {
             return response()->json(['message' => 'Unauthorized for this class.'], 403);
         }
@@ -73,31 +77,36 @@ class TeacherStudentController extends Controller
         $students = Student::where('gradeLevel', $gradeLevel)
             ->where('section', $section)
             ->whereIn('enrollmentStatus', ['active', 'inactive'])
-            ->get(['_id', 'studentId', 'firstName', 'lastName', 'gradeLevel', 'section', 'parentId', 'reportCard', 'reportCardSubmittedTerm', 'reportCardReleasedTerm', 'reportCardLockedTerm'])
+            ->get(['_id', 'studentId', 'firstName', 'lastName', 'gradeLevel', 'section', 'parentId', 'reportCard', 'reportCardSubmittedTerm', 'reportCardReleasedTerm', 'reportCardLockedTerms'])
             ->values();
 
-        $data = $students->map(function ($student) use ($access, $teacher) {
+        $data = $students->map(function ($student) use ($access) {
             $row = [
                 'id'         => (string) $student->_id,
                 'studentId'  => $student->studentId,
                 'fullName'   => trim("{$student->firstName} {$student->lastName}"),
-                'gradeLevel' => $student->gradeLevel,   // ← ADD THIS
+                'gradeLevel' => $student->gradeLevel,
                 'section'    => $student->section,
+                'role'       => $access['role'],
+                'subjects'   => $access['subjects'],
+                'reportCardSubmittedTerm' => $student->reportCardSubmittedTerm ?? null,
+                'reportCardReleasedTerm'  => $student->reportCardReleasedTerm  ?? null,
+                'reportCardLockedTerms'   => $student->reportCardLockedTerms ?? [],
             ];
-            if ($access === 'home') {
-                $row['forteSubjectCode']           = $teacher->forteSubjectCode;
-                $row['hasParentLink']              = !empty($student->parentId);
-                $row['reportCard']                 = $student->reportCard ?? new \stdClass();
-                $row['reportCardSubmittedTerm']    = $student->reportCardSubmittedTerm ?? null;
-                $row['reportCardReleasedTerm']     = $student->reportCardReleasedTerm  ?? null;
-                $row['reportCardLockedTerm']       = $student->reportCardLockedTerm    ?? null;
+
+            if ($access['role'] === 'home') {
+                $row['hasParentLink'] = !empty($student->parentId);
+                $row['reportCard']    = $student->reportCard ?? new \stdClass();
             } else {
-                $row['forteSubjectCode']           = $teacher->forteSubjectCode;
-                $row['reportCard']                 = $student->reportCard[$teacher->forteSubjectCode] ?? new \stdClass();
-                $row['reportCardSubmittedTerm']    = $student->reportCardSubmittedTerm ?? null;
-                $row['reportCardReleasedTerm']     = $student->reportCardReleasedTerm  ?? null;
-                $row['reportCardLockedTerm']       = $student->reportCardLockedTerm    ?? null;
+                // Visiting: only return the subjects this teacher can grade.
+                $card = $student->reportCard ?? [];
+                $filtered = [];
+                foreach ($access['subjects'] as $code) {
+                    if (isset($card[$code])) $filtered[$code] = $card[$code];
+                }
+                $row['reportCard'] = $filtered;
             }
+
             return $row;
         });
 
@@ -120,18 +129,18 @@ class TeacherStudentController extends Controller
 
         foreach ($teacher->homeAssignments ?? [] as $a) {
             $list[] = [
-                'gradeLevel'       => $a['gradeLevel'],
-                'section'          => $a['section'],
-                'role'             => 'home',
-                'forteSubjectCode' => $teacher->forteSubjectCode,
+                'gradeLevel' => $a['gradeLevel'] ?? null,
+                'section'    => $a['section'] ?? null,
+                'role'       => 'home',
+                'subjects'   => $a['subjects'] ?? [],
             ];
         }
         foreach ($teacher->visitingAssignments ?? [] as $a) {
             $list[] = [
-                'gradeLevel'       => $a['gradeLevel'],
-                'section'          => $a['section'],
-                'role'             => 'visiting',
-                'forteSubjectCode' => $teacher->forteSubjectCode,
+                'gradeLevel' => $a['gradeLevel'] ?? null,
+                'section'    => $a['section'] ?? null,
+                'role'       => 'visiting',
+                'subjects'   => $a['subjects'] ?? [],
             ];
         }
 
@@ -163,13 +172,15 @@ class TeacherStudentController extends Controller
             'lastName'   => $student->lastName,
             'gradeLevel' => $student->gradeLevel,
             'section'    => $student->section,
+            'role'       => $access['role'],
+            'subjects'   => $access['subjects'],
             'reportCardSubmittedTerm'    => $student->reportCardSubmittedTerm ?? null,
             'reportCardReleasedTerm'     => $student->reportCardReleasedTerm  ?? null,
-            'reportCardLockedTerm'       => $student->reportCardLockedTerm    ?? null,
+            'reportCardLockedTerms'      => $student->reportCardLockedTerms ?? [],
             'reportCardSubmittedAt'      => $student->reportCardSubmittedAt ?? null,
         ];
 
-        if ($access === 'home') {
+        if ($access['role'] === 'home') {
             $parent = $student->parentId ? ParentAccount::find($student->parentId) : null;
             $data['reportCard'] = $student->reportCard ?? new \stdClass();
             $data['parent'] = $parent ? [
@@ -179,8 +190,12 @@ class TeacherStudentController extends Controller
                 'phone'        => $parent->phone,
             ] : null;
         } else {
-            $data['forteSubjectCode'] = $teacher->forteSubjectCode;
-            $data['reportCard']       = $student->reportCard[$teacher->forteSubjectCode] ?? new \stdClass();
+            $card = $student->reportCard ?? [];
+            $filtered = [];
+            foreach ($access['subjects'] as $code) {
+                if (isset($card[$code])) $filtered[$code] = $card[$code];
+            }
+            $data['reportCard'] = $filtered;
         }
 
         return response()->json(['data' => $data]);
@@ -212,7 +227,7 @@ class TeacherStudentController extends Controller
             return response()->json(['message' => 'Unauthorized for this student.'], 403);
         }
 
-        $allowedCodes = [$teacher->forteSubjectCode];
+        $allowedCodes = $access['subjects'];
 
         $validator = Validator::make($request->all(), [
             'grades' => ['required', 'array', function ($attribute, $value, $fail) use ($allowedCodes) {
@@ -251,7 +266,9 @@ class TeacherStudentController extends Controller
 
                 $changed = (string) $oldGrade !== (string) $newGrade;
 
-                $isAdviserOwn = ($access === 'home' && $subjectCode === $teacher->forteSubjectCode);
+                // The adviser compiles-to-immediate when they personally grade
+                // the subject. For a visiting teacher, always writes to draft.
+                $isAdviserOwn = ($access['role'] === 'home');
 
                 if ($changed && $oldStatus === 'compiled' && !$isAdviserOwn) {
                     if (empty($note)) {
@@ -309,21 +326,22 @@ class TeacherStudentController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
-            'term' => 'required|in:T1,T2,T3',
+            'term'        => 'required|in:T1,T2,T3',
+            'subjectCode' => ['required', 'string', function ($attribute, $value, $fail) use ($access) {
+                if (!in_array($value, $access['subjects'], true)) {
+                    $fail("You are not assigned to teach {$value} in this class.");
+                }
+            }],
         ]);
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
         $term = $request->input('term');
+        $code = $request->input('subjectCode');
 
         if ($locked = $this->rejectIfTermLocked($student, $term)) {
             return $locked;
-        }
-
-        $code = $teacher->forteSubjectCode;
-        if (empty($code)) {
-            return response()->json(['message' => 'You do not have a forte subject assigned.'], 422);
         }
 
         $existing = $student->reportCard ?? [];
@@ -363,13 +381,13 @@ class TeacherStudentController extends Controller
             return response()->json(['message' => 'Student not found.'], 404);
         }
 
-        if ($this->resolveAccess($teacher, $student->gradeLevel, $student->section) !== 'home') {
+        if (($this->resolveAccess($teacher, $student->gradeLevel, $student->section)['role'] ?? null) !== 'home') {
             return response()->json(['message' => 'Only the advisory teacher can compile grades.'], 403);
         }
 
         $validator = Validator::make($request->all(), [
             'subjectCode' => ['required', 'string', function ($attribute, $value, $fail) use ($student) {
-                $valid = GradeSubjectService::subjectsForGrade($student->gradeLevel);
+                $valid = GradeSubjectService::entryCodesForGrade($student->gradeLevel);
                 if (!in_array($value, $valid, true)) {
                     $fail("Subject {$value} is not offered at {$student->gradeLevel}.");
                 }
@@ -431,7 +449,7 @@ class TeacherStudentController extends Controller
         if (!$student) {
             return response()->json(['message' => 'Student not found.'], 404);
         }
-        if ($this->resolveAccess($teacher, $student->gradeLevel, $student->section) !== 'home') {
+        if (($this->resolveAccess($teacher, $student->gradeLevel, $student->section)['role'] ?? null) !== 'home') {
             return response()->json(['message' => 'Only the advisory teacher can submit to admin.'], 403);
         }
 
@@ -448,7 +466,7 @@ class TeacherStudentController extends Controller
             return $locked;
         }
 
-        $required = GradeSubjectService::subjectsForGrade($student->gradeLevel);
+        $required = GradeSubjectService::entryCodesForGrade($student->gradeLevel);
         $card = $student->reportCard ?? [];
 
         $incomplete = [];
@@ -493,7 +511,7 @@ class TeacherStudentController extends Controller
         if (!$student) {
             return response()->json(['message' => 'Student not found.'], 404);
         }
-        if ($this->resolveAccess($teacher, $student->gradeLevel, $student->section) !== 'home') {
+        if (($this->resolveAccess($teacher, $student->gradeLevel, $student->section)['role'] ?? null) !== 'home') {
             return response()->json(['message' => 'Only the advisory teacher can recall a submission.'], 403);
         }
 

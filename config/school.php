@@ -3,8 +3,7 @@
 
 return [
     /*
-     * Ordered from lowest to highest. This single list drives both
-     * "what grade comes next" and "is this the graduating grade".
+     * Ordered from lowest to highest.
      */
     'grade_levels' => [
         'Nursery',
@@ -19,57 +18,78 @@ return [
     ],
 
     /*
-     * Subject display-name map. The source of truth for what a subject code
-     * means to a human. Which subjects apply to which grade lives in
-     * 'subjects_by_grade' below. MAPEH stays here even though it's no longer
-     * a graded subject — archived report cards from before the split still
-     * use it, and the display name is needed to render those.
+     * All subject codes the system knows about — both the ones teachers
+     * grade (MU, AR, PE, H) and the ones the report card displays (MAPEH).
      */
     'subjects' => [
-        // Elementary codes
-        'CLVE'  => 'Christian Living / Values Education',
+        'FIL'   => 'Filipino',
+        'ENG'   => 'English',
         'MATH'  => 'Mathematics',
         'SCI'   => 'Science',
-        'FIL'   => 'Filipino',
-        'MAPEH' => 'MAPEH',
-        'MA'    => 'Music & Arts',
+        'AP'    => 'Araling Panlipunan',
+        'EPP'   => 'Edukasyong Pantahanan at Praktikal',
+        'GMRC'  => 'Good Manners and Right Conduct',
+        'MU'    => 'Music',
+        'AR'    => 'Arts',
         'PE'    => 'Physical Education',
         'H'     => 'Health',
-        'EPP'   => 'Edukasyong Pantahanan at Praktikal',
-
-        // Preschool codes
-        'CL'    => 'Christian Living / Bible Studies',
-        'COM'   => 'Communication Skills (English & Filipino)',
-        'SEN'   => 'Sensory-Perceptual & Socio-Emotional Development',
+        'MAPEH' => 'MAPEH',
     ],
 
     /*
-     * Which subject codes are offered at each grade level, in display order.
-     * MA/PE/H are the three MAPEH components — graded independently but
-     * grouped visually under a "MAPEH" header (see 'subject_groups').
+     * Codes teachers enter grades for, per grade level.
+     * These are the codes stored in Student.reportCard as
+     * reportCard[CODE][TERM] = { grade, status }.
      */
-    'subjects_by_grade' => [
-        'Nursery'      => ['CL', 'COM', 'MATH', 'SEN'],
-        'Kindergarten' => ['CL', 'COM', 'MATH', 'SEN'],
-        'Preparatory'  => ['CL', 'COM', 'MATH', 'SEN'],
-        'Grade 1'      => ['CLVE', 'MATH', 'FIL', 'MA', 'PE', 'H', 'EPP'],
-        'Grade 2'      => ['CLVE', 'MATH', 'FIL', 'MA', 'PE', 'H', 'EPP'],
-        'Grade 3'      => ['CLVE', 'MATH', 'FIL', 'MA', 'PE', 'H', 'EPP'],
-        'Grade 4'      => ['CLVE', 'MATH', 'SCI', 'FIL', 'MA', 'PE', 'H', 'EPP'],
-        'Grade 5'      => ['CLVE', 'MATH', 'SCI', 'FIL', 'MA', 'PE', 'H', 'EPP'],
-        'Grade 6'      => ['CLVE', 'MATH', 'SCI', 'FIL', 'MA', 'PE', 'H', 'EPP'],
+    'entry_subjects_by_grade' => [
+        'Nursery'      => ['FIL', 'ENG', 'MATH', 'SCI', 'MU', 'AR', 'PE', 'H'],
+        'Kindergarten' => ['FIL', 'ENG', 'MATH', 'SCI', 'MU', 'AR', 'PE', 'H'],
+        'Preparatory'  => ['FIL', 'ENG', 'MATH', 'SCI', 'MU', 'AR', 'PE', 'H'],
+        'Grade 1'      => ['FIL', 'ENG', 'MATH', 'SCI', 'AP', 'EPP', 'MU', 'AR', 'PE', 'H', 'GMRC'],
+        'Grade 2'      => ['FIL', 'ENG', 'MATH', 'SCI', 'AP', 'EPP', 'MU', 'AR', 'PE', 'H', 'GMRC'],
+        'Grade 3'      => ['FIL', 'ENG', 'MATH', 'SCI', 'AP', 'EPP', 'MU', 'AR', 'PE', 'H', 'GMRC'],
+        'Grade 4'      => ['FIL', 'ENG', 'MATH', 'SCI', 'AP', 'EPP', 'MU', 'AR', 'PE', 'H', 'GMRC'],
+        'Grade 5'      => ['FIL', 'ENG', 'MATH', 'SCI', 'AP', 'EPP', 'MU', 'AR', 'PE', 'H', 'GMRC'],
+        'Grade 6'      => ['FIL', 'ENG', 'MATH', 'SCI', 'AP', 'EPP', 'MU', 'AR', 'PE', 'H', 'GMRC'],
     ],
 
     /*
-     * Display-grouping hints. Codes listed in a group render under a shared
-     * header (with the group's label) instead of as flat rows. Groups are
-     * display-only — every code remains an independent subject with its own
-     * grade and status.
+     * Codes displayed on the report card, per grade level.
+     * MAPEH replaces MU/AR/PE/H — its value is computed from those four.
+     * Order here is the row order on the printed card.
      */
-    'subject_groups' => [
+    'display_subjects_by_grade' => [
+        'Nursery'      => ['FIL', 'ENG', 'MATH', 'SCI', 'MAPEH'],
+        'Kindergarten' => ['FIL', 'ENG', 'MATH', 'SCI', 'MAPEH'],
+        'Preparatory'  => ['FIL', 'ENG', 'MATH', 'SCI', 'MAPEH'],
+        'Grade 1'      => ['FIL', 'ENG', 'MATH', 'SCI', 'AP', 'EPP', 'MAPEH', 'GMRC'],
+        'Grade 2'      => ['FIL', 'ENG', 'MATH', 'SCI', 'AP', 'EPP', 'MAPEH', 'GMRC'],
+        'Grade 3'      => ['FIL', 'ENG', 'MATH', 'SCI', 'AP', 'EPP', 'MAPEH', 'GMRC'],
+        'Grade 4'      => ['FIL', 'ENG', 'MATH', 'SCI', 'AP', 'EPP', 'MAPEH', 'GMRC'],
+        'Grade 5'      => ['FIL', 'ENG', 'MATH', 'SCI', 'AP', 'EPP', 'MAPEH', 'GMRC'],
+        'Grade 6'      => ['FIL', 'ENG', 'MATH', 'SCI', 'AP', 'EPP', 'MAPEH', 'GMRC'],
+    ],
+
+    /*
+     * Display codes that are computed from component entry codes.
+     * Rounding is always ceiling (any decimal rounds up).
+     */
+    'computed_subjects' => [
         'MAPEH' => [
-            'label' => 'MAPEH',
-            'codes' => ['MA', 'PE', 'H'],
+            'label'      => 'MAPEH',
+            'components' => ['MU', 'AR', 'PE', 'H'],
+            'rounding'   => 'ceil',
         ],
+    ],
+
+    /*
+     * Descriptor table used for report card remarks.
+     */
+    'descriptors' => [
+        ['min' => 90, 'max' => 100, 'label' => 'Advancing',    'letter' => 'A', 'remark' => 'Passed'],
+        ['min' => 80, 'max' => 89,  'label' => 'Benchmarking', 'letter' => 'B', 'remark' => 'Passed'],
+        ['min' => 75, 'max' => 79,  'label' => 'Connecting',   'letter' => 'C', 'remark' => 'Passed'],
+        ['min' => 65, 'max' => 74,  'label' => 'Developing',   'letter' => 'D', 'remark' => 'Failed'],
+        ['min' => 0,  'max' => 64,  'label' => 'Emerging',     'letter' => 'E', 'remark' => 'Failed'],
     ],
 ];

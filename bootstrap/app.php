@@ -36,6 +36,12 @@ return Application::configure(basePath: dirname(__DIR__))
         \App\Console\Commands\MigrateMapehToComponents::class,
         \App\Console\Commands\ReportMapehForte::class,
         \App\Console\Commands\RemirrorReleasedCards::class,
+        \App\Console\Commands\MigrateStudentArchivedAt::class,
+        \App\Console\Commands\MigrateParentArchivedAt::class,
+        \App\Console\Commands\MigrateSubjectCodesPhase1::class,
+        \App\Console\Commands\CleanupOrphanedMaCode::class,
+        \App\Console\Commands\MigrateTeacherAssignmentsPhase2::class,
+        \App\Console\Commands\MigrateLockedTerms::class,
     ])->create();
 
     

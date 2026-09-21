@@ -20,17 +20,13 @@ class Teacher extends Model
         'email',
         'password',
         'department',          // 'elementary' | 'preschool'
-        'forteSubjectCode',    // nullable — null for preschool teachers
-        'homeAssignments',     // array of ['gradeLevel' => 'Grade 2', 'section' => 'A']
-        'visitingAssignments', // same shape; subject is always forteSubjectCode
+        'homeAssignments',     // [{gradeLevel, section, subjects: [...]}]
+        'visitingAssignments', // [{gradeLevel, section, subjects: [...]}]
         'status',              // 'active' | 'deleted'
     ];
 
     protected $hidden = ['password'];
 
-    /**
-     * Does this teacher hold the given grade+section as a home (advisory) class?
-     */
     public function isHomeSection(string $gradeLevel, string $section): bool
     {
         return collect($this->homeAssignments ?? [])->contains(function ($a) use ($gradeLevel, $section) {
@@ -39,9 +35,6 @@ class Teacher extends Model
         });
     }
 
-    /**
-     * Does this teacher hold the given grade+section as a visiting class?
-     */
     public function isVisitingSection(string $gradeLevel, string $section): bool
     {
         return collect($this->visitingAssignments ?? [])->contains(function ($a) use ($gradeLevel, $section) {
@@ -51,8 +44,45 @@ class Teacher extends Model
     }
 
     /**
-     * Distinct grade levels this teacher visits (elementary specialists only).
+     * Return the subjects this teacher teaches in the given class.
+     * If they hold the class as both home AND visiting, returns the union.
+     * Returns [] when they have no assignment here.
      */
+    public function subjectsFor(string $gradeLevel, string $section): array
+    {
+        $subjects = [];
+        foreach (['homeAssignments', 'visitingAssignments'] as $field) {
+            foreach ($this->{$field} ?? [] as $a) {
+                if (($a['gradeLevel'] ?? null) !== $gradeLevel) continue;
+                if (($a['section'] ?? null) !== $section) continue;
+                foreach ($a['subjects'] ?? [] as $code) {
+                    if (!in_array($code, $subjects, true)) {
+                        $subjects[] = $code;
+                    }
+                }
+            }
+        }
+        return $subjects;
+    }
+
+    /**
+     * All distinct subject codes this teacher is assigned to anywhere.
+     */
+    public function allAssignedSubjects(): array
+    {
+        $codes = [];
+        foreach (['homeAssignments', 'visitingAssignments'] as $field) {
+            foreach ($this->{$field} ?? [] as $a) {
+                foreach ($a['subjects'] ?? [] as $code) {
+                    if (!in_array($code, $codes, true)) {
+                        $codes[] = $code;
+                    }
+                }
+            }
+        }
+        return $codes;
+    }
+
     public function visitingGradeLevels(): array
     {
         return collect($this->visitingAssignments ?? [])

@@ -23,20 +23,25 @@ class ParentAccount extends Model
         'fcmToken',
         'isDeleted',
         'deletedAt',
+        'archivedAt',
+    ];
+
+    protected $casts = [
+        'archivedAt' => 'datetime',
     ];
 
     public function allLinkedStudentsHaveLeft(): bool
     {
         $studentIds = $this->studentIds ?? [];
-
+    
         if (empty($studentIds)) {
             return false;
         }
-
-        $stillActiveCount = Student::whereIn('_id', $studentIds)
-            ->where('enrollmentStatus', 'active')
+    
+        $stillHereCount = Student::whereIn('_id', $studentIds)
+            ->whereNotIn('enrollmentStatus', ['graduated', 'transferred_out', 'deleted'])
             ->count();
-
-        return $stillActiveCount === 0;
+    
+        return $stillHereCount === 0;
     }
 }

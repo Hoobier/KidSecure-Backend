@@ -64,12 +64,19 @@ class ParentController extends Controller
     public function index(Request $request)
     {
         $status = $request->query('status');
-        $parents = $status === 'deleted'
-            ? ParentAccount::where('isDeleted', true)->get()
-            : ParentAccount::where(function ($query) {
+        
+        if ($status === 'deleted') {
+            $parents = ParentAccount::where('isDeleted', true)->get();
+        } elseif ($status === 'archived') {
+            $parents = ParentAccount::where(function ($query) {
                 $query->where('isDeleted', '!=', true)->orWhereNull('isDeleted');
-            })->get();
-        $students = Student::whereIn('enrollmentStatus', ['active', 'inactive', 'deleted', 'graduated'])
+            })->whereNotNull('archivedAt')->get();
+        } else {
+            $parents = ParentAccount::where(function ($query) {
+                $query->where('isDeleted', '!=', true)->orWhereNull('isDeleted');
+            })->whereNull('archivedAt')->get();
+        }
+            $students = Student::whereIn('enrollmentStatus', ['active', 'inactive', 'deleted', 'graduated', 'transferred_out'])
             ->get(['studentId', 'firstName', 'lastName', 'parentId', 'enrollmentStatus']);
 
         try {
@@ -102,7 +109,8 @@ class ParentController extends Controller
                 'isDeleted' => (bool) ($p->isDeleted ?? false),
                 'accountStatus' => ($p->isDeleted ?? false)
                     ? 'deleted'
-                    : ($firebase?->getParentAccountStatus($p->firebaseUid) ?? 'unknown'),
+                    : ($p->archivedAt ? 'archived' : ($firebase?->getParentAccountStatus($p->firebaseUid) ?? 'unknown')),
+                'archivedAt' => $p->archivedAt,
             ];
         });
 
@@ -208,68 +216,7 @@ class ParentController extends Controller
         return response()->json(['message' => 'Parent account has been restored.']);
     }
 
-    public function forceDelete($id)
-    {
-        $parent = ParentAccount::find($id);
 
-        if (!$parent) {
-            return response()->json(['message' => 'Parent account not found.'], 404);
-        }
-
-        if ($parent->isDeleted !== true) {
-            return response()->json([
-                'message' => 'This parent account must be deleted before it can be permanently removed.',
-            ], 422);
-        }
-
-        $blockingStudents = Student::where('parentId', (string) $parent->_id)
-            ->where('enrollmentStatus', '!=', 'graduated')
-            ->get(['studentId', 'firstName', 'lastName', 'gradeLevel', 'section', 'enrollmentStatus']);
-
-        if ($blockingStudents->isNotEmpty()) {
-            return response()->json([
-                'message' => 'Unable to delete this account because it is still linked to active student records.',
-                'blockingStudents' => $blockingStudents->map(function ($student) {
-                    return [
-                        'id' => (string) $student->_id,
-                        'studentId' => $student->studentId,
-                        'name' => trim($student->firstName . ' ' . $student->lastName),
-                        'gradeLevel' => $student->gradeLevel,
-                        'section' => $student->section,
-                        'status' => $student->enrollmentStatus,
-                    ];
-                })->values()->all(),
-            ], 409);
-        }
-
-        if (!empty($parent->firebaseUid)) {
-            try {
-                app(FirebaseService::class)->deleteParentAccount($parent->firebaseUid);
-            } catch (\Throwable $e) {
-                \Log::error("Failed to delete Firebase parent account {$parent->firebaseUid}: " . $e->getMessage());
-            }
-
-            try {
-                app(FirebaseRealtimeService::class)->removeParent($parent->firebaseUid);
-            } catch (\Throwable $e) {
-                \Log::error("Failed to remove parent RTDB node {$parent->firebaseUid}: " . $e->getMessage());
-            }
-        }
-
-        $linkedStudents = Student::where('parentId', (string) $parent->_id)->get();
-        foreach ($linkedStudents as $student) {
-            try {
-                $student->parentId = null;
-                $student->save();
-            } catch (\Throwable $e) {
-                \Log::error("Failed to unlink student {$student->studentId} from deleted parent {$parent->_id}: " . $e->getMessage());
-            }
-        }
-
-        $parent->delete();
-
-        return response()->json(['message' => 'Parent account has been permanently deleted.']);
-    }
 
     /**
      * POST /api/parents/{id}/resend-credentials
@@ -416,7 +363,7 @@ class ParentController extends Controller
             $firebase = null;
         }
 
-        $students = Student::whereIn('enrollmentStatus', ['active', 'inactive', 'deleted', 'graduated'])
+        $students = Student::whereIn('enrollmentStatus', ['active', 'inactive', 'deleted', 'graduated', 'transferred_out'])
             ->where('parentId', (string) $parent->_id)
             ->orderBy('created_at', 'desc')
             ->get(['studentId', 'firstName', 'lastName', 'gradeLevel', 'section', 'enrollmentStatus', 'created_at']);
@@ -450,6 +397,7 @@ class ParentController extends Controller
                 'isDeleted' => (bool) ($parent->isDeleted ?? false),
                 'createdAt'  => $parent->created_at,
                 'children'   => $children,
+                'archivedAt' => $parent->archivedAt,
             ],
         ]);
     }

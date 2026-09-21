@@ -15,9 +15,6 @@ class TeacherController extends Controller
 {
     private const SECTION_OPTIONS = ['A', 'B', 'C'];
 
-    // ------------------------------------------------------------------
-    // GET /api/teachers
-    // ------------------------------------------------------------------
     public function index(Request $request)
     {
         $perPage    = min((int) $request->query('per_page', 20), 100);
@@ -66,7 +63,7 @@ class TeacherController extends Controller
                 'fullName'               => $fullName,
                 'email'                  => $t->email,
                 'department'             => $t->department,
-                'forteSubjectCode'       => $t->forteSubjectCode,
+                'subjects'               => $t->allAssignedSubjects(),
                 'homeAssignmentsCount'   => count($t->homeAssignments ?? []),
                 'visitingAssignmentsCount' => count($t->visitingAssignments ?? []),
                 'status'                 => $t->status ?? 'active',
@@ -82,9 +79,6 @@ class TeacherController extends Controller
         ]);
     }
 
-    // ------------------------------------------------------------------
-    // POST /api/teachers
-    // ------------------------------------------------------------------
     public function store(Request $request)
     {
         $validator = $this->makeValidator($request);
@@ -96,20 +90,18 @@ class TeacherController extends Controller
         }
 
         $data = $validator->validated();
-
         $tempPassword = $this->generateTempPassword();
 
         $teacher = new Teacher();
-        $teacher->firstName       = $data['firstName'];
-        $teacher->middleName      = $data['middleName'] ?? '';
-        $teacher->lastName        = $data['lastName'];
-        $teacher->email           = $data['email'];
-        $teacher->password        = Hash::make($tempPassword);
-        $teacher->department      = $data['department'];
-        $teacher->forteSubjectCode = $data['forteSubjectCode'] ?? null;
-        $teacher->homeAssignments = $this->normalizeAssignments($data['homeAssignments'] ?? []);
+        $teacher->firstName           = $data['firstName'];
+        $teacher->middleName          = $data['middleName'] ?? '';
+        $teacher->lastName            = $data['lastName'];
+        $teacher->email               = $data['email'];
+        $teacher->password            = Hash::make($tempPassword);
+        $teacher->department          = $data['department'];
+        $teacher->homeAssignments     = $this->normalizeAssignments($data['homeAssignments'] ?? []);
         $teacher->visitingAssignments = $this->normalizeAssignments($data['visitingAssignments'] ?? []);
-        $teacher->status          = 'active';
+        $teacher->status              = 'active';
         $teacher->save();
 
         $emailSent = $this->sendCredentials(
@@ -125,9 +117,6 @@ class TeacherController extends Controller
         ], 201);
     }
 
-    // ------------------------------------------------------------------
-    // GET /api/teachers/{id}
-    // ------------------------------------------------------------------
     public function show($id)
     {
         $teacher = Teacher::find($id);
@@ -147,7 +136,6 @@ class TeacherController extends Controller
                 'fullName'            => $fullName,
                 'email'               => $teacher->email,
                 'department'          => $teacher->department,
-                'forteSubjectCode'    => $teacher->forteSubjectCode,
                 'homeAssignments'     => $teacher->homeAssignments ?? [],
                 'visitingAssignments' => $teacher->visitingAssignments ?? [],
                 'status'              => $teacher->status ?? 'active',
@@ -156,9 +144,6 @@ class TeacherController extends Controller
         ]);
     }
 
-    // ------------------------------------------------------------------
-    // PATCH /api/teachers/{id}
-    // ------------------------------------------------------------------
     public function update(Request $request, $id)
     {
         $teacher = Teacher::find($id);
@@ -176,58 +161,40 @@ class TeacherController extends Controller
 
         $data = $validator->validated();
 
-        $teacher->firstName        = $data['firstName'];
-        $teacher->middleName       = $data['middleName'] ?? '';
-        $teacher->lastName         = $data['lastName'];
-        $teacher->email            = $data['email'];
-        $teacher->department       = $data['department'];
-        $teacher->forteSubjectCode = $data['forteSubjectCode'] ?? null;
-        $teacher->homeAssignments  = $this->normalizeAssignments($data['homeAssignments'] ?? []);
+        $teacher->firstName           = $data['firstName'];
+        $teacher->middleName          = $data['middleName'] ?? '';
+        $teacher->lastName            = $data['lastName'];
+        $teacher->email               = $data['email'];
+        $teacher->department          = $data['department'];
+        $teacher->homeAssignments     = $this->normalizeAssignments($data['homeAssignments'] ?? []);
         $teacher->visitingAssignments = $this->normalizeAssignments($data['visitingAssignments'] ?? []);
         $teacher->save();
 
         return response()->json(['message' => 'Teacher updated.']);
     }
 
-    // ------------------------------------------------------------------
-    // POST /api/teachers/{id}/delete  (soft delete)
-    // ------------------------------------------------------------------
     public function softDelete($id)
     {
         $teacher = Teacher::find($id);
-        if (!$teacher) {
-            return response()->json(['message' => 'Teacher not found.'], 404);
-        }
+        if (!$teacher) return response()->json(['message' => 'Teacher not found.'], 404);
         $teacher->status = 'deleted';
         $teacher->save();
-
         return response()->json(['message' => 'Teacher moved to Deleted Teachers.']);
     }
 
-    // ------------------------------------------------------------------
-    // POST /api/teachers/{id}/restore
-    // ------------------------------------------------------------------
     public function restore($id)
     {
         $teacher = Teacher::find($id);
-        if (!$teacher) {
-            return response()->json(['message' => 'Teacher not found.'], 404);
-        }
+        if (!$teacher) return response()->json(['message' => 'Teacher not found.'], 404);
         $teacher->status = 'active';
         $teacher->save();
-
         return response()->json(['message' => 'Teacher restored successfully.']);
     }
 
-    // ------------------------------------------------------------------
-    // POST /api/teachers/{id}/resend-credentials
-    // ------------------------------------------------------------------
     public function resendCredentials($id)
     {
         $teacher = Teacher::find($id);
-        if (!$teacher) {
-            return response()->json(['message' => 'Teacher not found.'], 404);
-        }
+        if (!$teacher) return response()->json(['message' => 'Teacher not found.'], 404);
 
         $tempPassword = $this->generateTempPassword();
         $teacher->password = Hash::make($tempPassword);
@@ -258,9 +225,9 @@ class TeacherController extends Controller
 
     private function makeValidator(Request $request, ?string $ignoreId = null)
     {
-        $subjectCodes = implode(',', array_keys(config('school.subjects')));
         $gradeLevels  = implode(',', config('school.grade_levels'));
         $sections     = implode(',', self::SECTION_OPTIONS);
+        $entryCodes   = implode(',', GradeSubjectService::allEntryCodes());
 
         $emailRule = 'required|email';
         if ($ignoreId) {
@@ -270,72 +237,71 @@ class TeacherController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
-            'firstName'        => ['required', 'string', 'regex:/^[A-Za-z\s\-\'.]{2,50}$/'],
-            'middleName'       => ['nullable', 'string', 'regex:/^[A-Za-z\s\-\'.]{2,50}$/'],
-            'lastName'         => ['required', 'string', 'regex:/^[A-Za-z\s\-\'.]{2,50}$/'],
-            'email'            => $emailRule,
-            'department'       => ['required', 'in:elementary,preschool'],
-            'forteSubjectCode' => ['nullable', 'string', "in:{$subjectCodes}"],
+            'firstName'  => ['required', 'string', 'regex:/^[A-Za-z\s\-\'.]{2,50}$/'],
+            'middleName' => ['nullable', 'string', 'regex:/^[A-Za-z\s\-\'.]{2,50}$/'],
+            'lastName'   => ['required', 'string', 'regex:/^[A-Za-z\s\-\'.]{2,50}$/'],
+            'email'      => $emailRule,
+            'department' => ['required', 'in:elementary,preschool'],
 
-            'homeAssignments'                  => ['array'],
-            'homeAssignments.*.gradeLevel'     => ['required', 'string', "in:{$gradeLevels}"],
-            'homeAssignments.*.section'        => ['required', 'string', "in:{$sections}"],
+            'homeAssignments'                    => ['array'],
+            'homeAssignments.*.gradeLevel'       => ['required', 'string', "in:{$gradeLevels}"],
+            'homeAssignments.*.section'          => ['required', 'string', "in:{$sections}"],
+            'homeAssignments.*.subjects'         => ['required', 'array', 'min:1'],
+            'homeAssignments.*.subjects.*'       => ['required', 'string', "in:{$entryCodes}"],
 
-            'visitingAssignments'              => ['array'],
-            'visitingAssignments.*.gradeLevel' => ['required', 'string', "in:{$gradeLevels}"],
-            'visitingAssignments.*.section'    => ['required', 'string', "in:{$sections}"],
+            'visitingAssignments'                => ['array'],
+            'visitingAssignments.*.gradeLevel'   => ['required', 'string', "in:{$gradeLevels}"],
+            'visitingAssignments.*.section'      => ['required', 'string', "in:{$sections}"],
+            'visitingAssignments.*.subjects'     => ['required', 'array', 'min:1'],
+            'visitingAssignments.*.subjects.*'   => ['required', 'string', "in:{$entryCodes}"],
         ], [
             'firstName.regex' => 'First name may only contain letters, spaces, hyphens, apostrophes, and periods (2–50 characters).',
             'middleName.regex' => 'Middle name may only contain letters, spaces, hyphens, apostrophes, and periods (2–50 characters).',
             'lastName.regex'  => 'Last name may only contain letters, spaces, hyphens, apostrophes, and periods (2–50 characters).',
         ]);
 
-        // Custom rules layered on top of the base ones.
-        $validator->after(function ($v) use ($request) {
+        $validator->after(function ($v) {
             $data = $v->getData();
-
             $department = $data['department'] ?? null;
-            $forte      = $data['forteSubjectCode'] ?? null;
             $home       = $data['homeAssignments'] ?? [];
             $visiting   = $data['visitingAssignments'] ?? [];
 
-            // 1. Preschool: no forte, no visiting.
-            if ($department === 'preschool') {
-                if (!empty($forte)) {
-                    $v->errors()->add('forteSubjectCode', 'Preschool teachers do not have a forte subject.');
-                }
-                if (!empty($visiting)) {
-                    $v->errors()->add('visitingAssignments', 'Preschool teachers do not have visiting classes.');
-                }
+            if ($department === 'preschool' && !empty($visiting)) {
+                $v->errors()->add('visitingAssignments', 'Preschool teachers do not have visiting classes.');
             }
 
-            // 2. Elementary + visiting requires a forte.
-            if ($department === 'elementary' && !empty($visiting) && empty($forte)) {
-                $v->errors()->add('forteSubjectCode', 'Please select a forte subject before adding visiting classes.');
-            }
-
-            // 3. Forte must be offered at each visiting grade.
-            if ($department === 'elementary' && !empty($forte) && !empty($visiting)) {
-                foreach ($visiting as $i => $row) {
-                    $grade = $row['gradeLevel'] ?? null;
-                    if ($grade && !GradeSubjectService::isSubjectOfferedAtGrade($forte, $grade)) {
-                        $v->errors()->add(
-                            "visitingAssignments.{$i}.gradeLevel",
-                            "{$forte} is not offered at {$grade}."
-                        );
-                    }
-                }
-            }
-
-            // 4. No duplicate pairs within each list.
-            foreach (['homeAssignments', 'visitingAssignments'] as $field) {
-                $rows = $data[$field] ?? [];
-                $seen = [];
+            // Each row's subjects must be offered at that row's grade level.
+            foreach (['homeAssignments' => $home, 'visitingAssignments' => $visiting] as $field => $rows) {
                 foreach ($rows as $i => $row) {
-                    $key = ($row['gradeLevel'] ?? '') . '|' . ($row['section'] ?? '');
-                    if ($key === '|') {
-                        continue;
+                    $grade = $row['gradeLevel'] ?? null;
+                    $subjects = $row['subjects'] ?? [];
+                    if (!$grade) continue;
+
+                    $offered = GradeSubjectService::entryCodesForGrade($grade);
+
+                    // No duplicate subjects within the row.
+                    if (count($subjects) !== count(array_unique($subjects))) {
+                        $v->errors()->add("{$field}.{$i}.subjects", 'Duplicate subjects in this assignment.');
                     }
+
+                    foreach ($subjects as $code) {
+                        if (!in_array($code, $offered, true)) {
+                            $v->errors()->add(
+                                "{$field}.{$i}.subjects",
+                                "{$code} is not offered at {$grade}."
+                            );
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // No duplicate {gradeLevel, section} pairs within a list.
+            foreach (['homeAssignments', 'visitingAssignments'] as $field) {
+                $seen = [];
+                foreach (($data[$field] ?? []) as $i => $row) {
+                    $key = ($row['gradeLevel'] ?? '') . '|' . ($row['section'] ?? '');
+                    if ($key === '|') continue;
                     if (isset($seen[$key])) {
                         $v->errors()->add("{$field}.{$i}.gradeLevel", 'This class has already been added.');
                     }
@@ -353,10 +319,13 @@ class TeacherController extends Controller
         foreach ($rows as $row) {
             $grade = $row['gradeLevel'] ?? null;
             $section = $row['section'] ?? null;
-            if (!$grade || !$section) {
-                continue;
-            }
-            $out[] = ['gradeLevel' => $grade, 'section' => $section];
+            $subjects = array_values(array_unique(array_filter($row['subjects'] ?? [])));
+            if (!$grade || !$section || empty($subjects)) continue;
+            $out[] = [
+                'gradeLevel' => $grade,
+                'section'    => $section,
+                'subjects'   => $subjects,
+            ];
         }
         return $out;
     }
@@ -373,8 +342,6 @@ class TeacherController extends Controller
             return true;
         } catch (\Throwable $e) {
             Log::error("Teacher credentials email failed for {$email}: " . $e->getMessage());
-            // Fall back to the log so the admin can retrieve the password
-            // if the mail server is down — same posture as the parent flow.
             try {
                 $line = sprintf(
                     "[%s] local.ERROR: TeacherAccountCreated failed TO=%s TEMP_PASSWORD=%s\n",
@@ -383,8 +350,7 @@ class TeacherController extends Controller
                     $password
                 );
                 @file_put_contents(storage_path('logs/laravel.log'), $line, FILE_APPEND | LOCK_EX);
-            } catch (\Throwable $_) {
-            }
+            } catch (\Throwable $_) {}
             return false;
         }
     }

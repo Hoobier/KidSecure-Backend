@@ -111,7 +111,7 @@ class SchoolYearRolloverController extends Controller
             // Term-scoped fields
             $student->reportCardSubmittedTerm = null;
             $student->reportCardReleasedTerm  = null;
-            $student->reportCardLockedTerm    = null;
+            $student->reportCardLockedTerms  = [];
 
             // Timestamps
             $student->reportCardSubmittedAt = null;
@@ -203,6 +203,7 @@ class SchoolYearRolloverController extends Controller
                     $student->save();
                 } elseif ($action === 'graduate') {
                     $student->enrollmentStatus = 'graduated';
+                    $student->archivedAt        = now();
                     $student->save();
 
                     if (!empty($student->rfidTag)) {
@@ -217,9 +218,12 @@ class SchoolYearRolloverController extends Controller
                         && !empty($parentAccount->firebaseUid)
                         && $parentAccount->allLinkedStudentsHaveLeft()) {
                         $parentUidsToFreeze[$parentAccount->firebaseUid] = true;
+                        $parentAccount->archivedAt = now();
+                        $parentAccount->save();
                     }
                 } elseif ($action === 'transfer_out') {
                     $student->enrollmentStatus = 'transferred_out';
+                    $student->archivedAt        = now();
                     $student->save();
 
                     if (!empty($student->rfidTag)) {
@@ -234,6 +238,8 @@ class SchoolYearRolloverController extends Controller
                         && !empty($parentAccount->firebaseUid)
                         && $parentAccount->allLinkedStudentsHaveLeft()) {
                         $parentUidsToFreeze[$parentAccount->firebaseUid] = true;
+                        $parentAccount->archivedAt = now();
+                        $parentAccount->save();
                     }
                 }
             }

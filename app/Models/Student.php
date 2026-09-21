@@ -32,13 +32,16 @@ class Student extends Model
         'reportCardSubmittedAt',
         'reportCardSubmittedTerm',
         'reportCardReleasedTerm',
-        'reportCardLockedTerm',
+        'reportCardLockedTerms',
+        'archivedAt',
     ];
 
 
     protected $casts = [
         'reportCardSubmittedAt'      => 'datetime',
         'reportCardReleasedAt'       => 'datetime',
+        'reportCardLockedTerms'      => 'array',
+        'archivedAt' => 'datetime',
     ];
 
     public function upsertDocument(array $newDocument): void

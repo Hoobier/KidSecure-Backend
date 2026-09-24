@@ -129,6 +129,24 @@ return [
     ],
 
     /*
+     * Ordered list of months in the school year, for the attendance table
+     * on the back of the report card. Fixed: always June through April.
+     */
+    'school_months' => [
+        'June',
+        'July',
+        'August',
+        'September',
+        'October',
+        'November',
+        'December',
+        'January',
+        'February',
+        'March',
+        'April',
+    ],
+
+    /*
      * Rating codes for observed values. These are the only valid values
      * in Student.observedValues[term][coreValueCode].
      */

@@ -604,4 +604,97 @@ class TeacherStudentController extends Controller
             'data'    => ['observedValues' => $student->observedValues],
         ]);
     }
+
+        public function attendance(Request $request, $id)
+    {
+        $teacher = $request->user();
+        $student = Student::find($id);
+
+        if (!$student) {
+            return response()->json(['message' => 'Student not found.'], 404);
+        }
+
+        $access = $this->resolveAccess($teacher, $student->gradeLevel, $student->section);
+        if (!$access || $access['role'] !== 'home') {
+            return response()->json(['message' => 'Only the advisory teacher can view attendance.'], 403);
+        }
+
+        $service = app(\App\Services\AttendanceDeriveService::class);
+        $months = $service->mergedForStudent($student);
+
+        return response()->json([
+            'data' => [
+                'months' => $months,
+                'locked' => $student->attendanceLocked(),
+            ],
+        ]);
+    }
+
+    public function saveAttendance(Request $request, $id)
+    {
+        $teacher = $request->user();
+        $student = Student::find($id);
+
+        if (!$student) {
+            return response()->json(['message' => 'Student not found.'], 404);
+        }
+
+        $access = $this->resolveAccess($teacher, $student->gradeLevel, $student->section);
+        if (!$access || $access['role'] !== 'home') {
+            return response()->json(['message' => 'Only the advisory teacher can enter attendance.'], 403);
+        }
+
+        if ($student->attendanceLocked()) {
+            return response()->json([
+                'message' => 'Attendance is now managed by the school office.',
+            ], 423);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'months' => 'required|array',
+            'months.*.present' => 'nullable|integer|min:0|max:31',
+            'months.*.tardy'   => 'nullable|integer|min:0|max:31',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $setting = \App\Models\TermSetting::current();
+        $schoolDays = $setting->monthlySchoolDays ?? [];
+        $incoming = $request->input('months');
+
+        foreach ($incoming as $monthName => $entry) {
+            if (!in_array($monthName, config('school.school_months', []), true)) {
+                return response()->json(['message' => "Unknown month: {$monthName}"], 422);
+            }
+            $max = $schoolDays[$monthName] ?? null;
+            $present = (int) ($entry['present'] ?? 0);
+            $tardy   = (int) ($entry['tardy'] ?? 0);
+
+            if ($max !== null && ($present + $tardy) > $max) {
+                return response()->json([
+                    'message' => "Present + tardy for {$monthName} exceeds school days ({$max}).",
+                ], 422);
+            }
+        }
+
+        $clean = [];
+        foreach ($incoming as $monthName => $entry) {
+            $present = $entry['present'] ?? null;
+            $tardy   = $entry['tardy'] ?? null;
+            if ($present === null && $tardy === null) continue;
+            $clean[$monthName] = [
+                'present' => $present === null ? 0 : (int) $present,
+                'tardy'   => $tardy === null ? 0 : (int) $tardy,
+            ];
+        }
+
+        $student->attendanceByMonth = $clean;
+        $student->save();
+
+        return response()->json([
+            'message' => 'Attendance saved.',
+            'data'    => ['attendanceByMonth' => $student->attendanceByMonth],
+        ]);
+    }
 }

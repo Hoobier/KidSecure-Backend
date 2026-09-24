@@ -15,6 +15,7 @@ class SubjectController extends Controller
                 'descriptors'              => config('school.descriptors', []),
                 'observed_values'         => config('school.observed_values', []),
                 'observed_value_ratings'  => config('school.observed_value_ratings', []),
+                'school_months' => config('school.school_months', []),
             ],
         ]);
     }

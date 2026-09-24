@@ -29,6 +29,7 @@ class Student extends Model
         'previousSchool',
         'reportCard',
         'observedValues',
+        'attendanceByMonth',
         'reportCardReleasedAt',
         'reportCardSubmittedAt',
         'reportCardSubmittedTerm',
@@ -63,5 +64,19 @@ class Student extends Model
 
         $this->documents = $documents;
         $this->save();
+    }
+
+    /**
+     * True when all three terms have been released for this student.
+     * Attendance locks at that point — advisory edits blocked.
+     */
+    public function attendanceLocked(): bool
+    {
+        $locked = $this->reportCardLockedTerms ?? [];
+        if (!is_array($locked)) return false;
+
+        return in_array('T1', $locked, true)
+            && in_array('T2', $locked, true)
+            && in_array('T3', $locked, true);
     }
 }

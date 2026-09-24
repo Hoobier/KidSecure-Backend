@@ -15,6 +15,8 @@ class TermSetting extends Model
         'terms',
         'rolloverStatus',
         'rolloverCompletedAt',
+        'monthlySchoolDays',
+        'tardyCutoff',
     ];
 
     protected $casts = [

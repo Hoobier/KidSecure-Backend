@@ -18,7 +18,6 @@ class TermSetting extends Model
     ];
 
     protected $casts = [
-        'terms' => 'array',
         'rolloverCompletedAt' => 'date',
     ];
 

@@ -42,6 +42,7 @@ return Application::configure(basePath: dirname(__DIR__))
         \App\Console\Commands\CleanupOrphanedMaCode::class,
         \App\Console\Commands\MigrateTeacherAssignmentsPhase2::class,
         \App\Console\Commands\MigrateLockedTerms::class,
+        \App\Console\Commands\FixLockedTermsStorage::class,
     ])->create();
 
     

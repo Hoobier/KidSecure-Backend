@@ -40,7 +40,6 @@ class Student extends Model
     protected $casts = [
         'reportCardSubmittedAt'      => 'datetime',
         'reportCardReleasedAt'       => 'datetime',
-        'reportCardLockedTerms'      => 'array',
         'archivedAt' => 'datetime',
     ];
 

@@ -73,6 +73,7 @@ Route::middleware(['auth:sanctum', 'actor:admin'])->group(function () {
     Route::post('/students/{id}/report-card', [StudentController::class, 'saveReportCard']);
     Route::post('/students/{id}/report-card/release', [StudentController::class, 'releaseReportCard']);
     Route::post('/students/{id}/report-card/unrelease', [StudentController::class, 'unreleaseReportCard']);
+    Route::post('/students/{id}/observed-values', [StudentController::class, 'saveObservedValues']);
     Route::get('/guest/enrollments', [EnrollmentApplicationController::class, 'index']);
     Route::delete('/guest/enrollments/rejected', [EnrollmentApplicationController::class, 'destroyRejected']);
     Route::get('/guest/enrollments/{id}', [EnrollmentApplicationController::class, 'show']);
@@ -113,7 +114,7 @@ Route::middleware(['auth:sanctum', 'actor:teacher'])->prefix('teacher')->group(f
     Route::post('/students/{id}/report-card/compile', [TeacherStudentController::class, 'compileReportCard']);
     Route::post('/students/{id}/report-card/submit-to-admin', [TeacherStudentController::class, 'submitToAdmin']);
     Route::post('/students/{id}/report-card/recall', [TeacherStudentController::class, 'recallSubmission']);
-    Route::get('/dashboard/summary', [TeacherDashboardController::class, 'summary']);
+    Route::post('/students/{id}/observed-values', [TeacherStudentController::class, 'saveObservedValues']);
     Route::get('/classes', [TeacherStudentController::class, 'classes']);
 });
 

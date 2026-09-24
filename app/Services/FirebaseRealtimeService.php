@@ -140,6 +140,19 @@ class FirebaseRealtimeService
         $this->db
             ->getReference("students/{$student->studentId}/reportCard")
             ->set($scoped);
+
+        // Also mirror the observed values for the released term.
+        $values = $student->observedValues ?? [];
+        if (is_array($values) && isset($values[$term]) && is_array($values[$term]) && !empty($values[$term])) {
+            $this->db
+                ->getReference("students/{$student->studentId}/observedValues")
+                ->set([$term => $values[$term]]);
+        } else {
+            // No values for this term — make sure Firebase isn't holding stale ones.
+            $this->db
+                ->getReference("students/{$student->studentId}/observedValues")
+                ->remove();
+        }
     }
 
     public function removeReportCard(string $studentId): void

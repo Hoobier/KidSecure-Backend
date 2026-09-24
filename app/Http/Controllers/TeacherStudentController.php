@@ -77,7 +77,7 @@ class TeacherStudentController extends Controller
         $students = Student::where('gradeLevel', $gradeLevel)
             ->where('section', $section)
             ->whereIn('enrollmentStatus', ['active', 'inactive'])
-            ->get(['_id', 'studentId', 'firstName', 'lastName', 'gradeLevel', 'section', 'parentId', 'reportCard', 'reportCardSubmittedTerm', 'reportCardReleasedTerm', 'reportCardLockedTerms'])
+            ->get(['_id', 'studentId', 'firstName', 'lastName', 'gradeLevel', 'section', 'parentId', 'reportCard', 'reportCardSubmittedTerm', 'reportCardReleasedTerm', 'reportCardLockedTerms', 'observedValues'])
             ->values();
 
         $data = $students->map(function ($student) use ($access) {
@@ -97,6 +97,7 @@ class TeacherStudentController extends Controller
             if ($access['role'] === 'home') {
                 $row['hasParentLink'] = !empty($student->parentId);
                 $row['reportCard']    = $student->reportCard ?? new \stdClass();
+                $row['observedValues'] = $student->observedValues ?? new \stdClass();
             } else {
                 // Visiting: only return the subjects this teacher can grade.
                 $card = $student->reportCard ?? [];
@@ -183,6 +184,7 @@ class TeacherStudentController extends Controller
         if ($access['role'] === 'home') {
             $parent = $student->parentId ? ParentAccount::find($student->parentId) : null;
             $data['reportCard'] = $student->reportCard ?? new \stdClass();
+            $data['observedValues'] = $student->observedValues ?? new \stdClass();
             $data['parent'] = $parent ? [
                 'fullName'     => trim("{$parent->firstName} {$parent->lastName}"),
                 'relationship' => $parent->relationship,
@@ -533,6 +535,73 @@ class TeacherStudentController extends Controller
                 'reportCardSubmittedTerm'    => null,
                 'reportCardSubmittedAt'      => null,
             ],
+        ]);
+    }
+
+    /**
+     * POST /api/teacher/students/{id}/observed-values
+     * Adviser-only. Save observed value ratings for one term.
+     * Term must be the currently active term and not locked.
+     */
+    public function saveObservedValues(Request $request, $id)
+    {
+        $teacher = $request->user();
+        $student = Student::find($id);
+
+        if (!$student) {
+            return response()->json(['message' => 'Student not found.'], 404);
+        }
+
+        $access = $this->resolveAccess($teacher, $student->gradeLevel, $student->section);
+        if (!$access || $access['role'] !== 'home') {
+            return response()->json(['message' => 'Only the advisory teacher can enter observed values.'], 403);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'term'   => 'required|in:T1,T2,T3',
+            'values' => 'required|array',
+            'values.*' => 'required|string|in:AO,SO,RO,NO',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $term = $request->input('term');
+
+        // Only the active term is editable by the adviser.
+        $activeTermNumber = \App\Models\TermSetting::current()->activeTermNumber() ?? 1;
+        $activeTerm = "T{$activeTermNumber}";
+        if ($term !== $activeTerm) {
+            return response()->json([
+                'message' => 'Only the currently active term can be edited.',
+            ], 422);
+        }
+
+        if ($locked = $this->rejectIfTermLocked($student, $term)) {
+            return $locked;
+        }
+
+        // Validate that every value code is one of the config-defined core values.
+        $validCoreValues = array_keys(config('school.observed_values', []));
+        $incoming = $request->input('values');
+        foreach (array_keys($incoming) as $coreValueCode) {
+            if (!in_array($coreValueCode, $validCoreValues, true)) {
+                return response()->json([
+                    'message' => "Unknown core value: {$coreValueCode}",
+                ], 422);
+            }
+        }
+
+        $existing = $student->observedValues ?? [];
+        if (!is_array($existing)) $existing = [];
+
+        $existing[$term] = $incoming;
+        $student->observedValues = $existing;
+        $student->save();
+
+        return response()->json([
+            'message' => 'Observed values saved.',
+            'data'    => ['observedValues' => $student->observedValues],
         ]);
     }
 }

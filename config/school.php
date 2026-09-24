@@ -92,4 +92,50 @@ return [
         ['min' => 65, 'max' => 74,  'label' => 'Developing',   'letter' => 'D', 'remark' => 'Failed'],
         ['min' => 0,  'max' => 64,  'label' => 'Emerging',     'letter' => 'E', 'remark' => 'Failed'],
     ],
+
+    /*
+     * Observed values section on the report card back. Each core value has
+     * a fixed set of behavior statements that appear on the printed card.
+     * Codes are short stable identifiers stored in Student.observedValues.
+     */
+    'observed_values' => [
+        'GC' => [
+            'label' => 'God-centered',
+            'statements' => [
+                "Expresses one's spiritual belief while respecting the spiritual beliefs of others.",
+                'Shows adherence to ethical principles by upholding truth.',
+                'Is sensitive to individual, social, and cultural differences.',
+            ],
+        ],
+        'HU' => [
+            'label' => 'Humane',
+            'statements' => [
+                'Demonstrate contributions toward solidarity.',
+            ],
+        ],
+        'EC' => [
+            'label' => 'Environmentally Conscious',
+            'statements' => [
+                'Cares for the environment and uses resources wisely and economically.',
+            ],
+        ],
+        'PA' => [
+            'label' => 'Patriotic',
+            'statements' => [
+                'Demonstrates pride being Filipino and exercises the rights and responsibilities of a Filipino citizen.',
+                'Demonstrates appropriate behavior in carrying out activities in school, community, and country.',
+            ],
+        ],
+    ],
+
+    /*
+     * Rating codes for observed values. These are the only valid values
+     * in Student.observedValues[term][coreValueCode].
+     */
+    'observed_value_ratings' => [
+        'AO' => 'Always Observed',
+        'SO' => 'Sometimes Observed',
+        'RO' => 'Rarely Observed',
+        'NO' => 'Not Observed',
+    ],
 ];

@@ -13,6 +13,8 @@ class SubjectController extends Controller
                 'display_subjects_by_grade'=> config('school.display_subjects_by_grade', []),
                 'computed_subjects'        => config('school.computed_subjects', []),
                 'descriptors'              => config('school.descriptors', []),
+                'observed_values'         => config('school.observed_values', []),
+                'observed_value_ratings'  => config('school.observed_value_ratings', []),
             ],
         ]);
     }

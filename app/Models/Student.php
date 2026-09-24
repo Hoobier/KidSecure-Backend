@@ -28,6 +28,7 @@ class Student extends Model
         'isTransferee',
         'previousSchool',
         'reportCard',
+        'observedValues',
         'reportCardReleasedAt',
         'reportCardSubmittedAt',
         'reportCardSubmittedTerm',

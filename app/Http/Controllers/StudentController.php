@@ -383,6 +383,7 @@ class StudentController extends Controller
                 'isTransferee'   => $student->isTransferee ?? false,  
                 'previousSchool' => $student->previousSchool ?? null,
                 'archivedAt'     => $student->archivedAt ?? null,
+                'observedValues' => $student->observedValues ?? new \stdClass(),
                 'parent'      => $parent ? [
                     'id'          => $parent->_id,
                     'fullName'    => trim("{$parent->firstName} {$parent->lastName}"),
@@ -944,6 +945,7 @@ class StudentController extends Controller
                 'reportCardReleasedTerm' => $student->reportCardReleasedTerm ?? null,
                 'reportCardReleasedAt' => $student->reportCardReleasedAt ?? null,
                 'reportCardLockedTerms' => $student->reportCardLockedTerms ?? [],
+                'observedValues' => $student->observedValues ?? new \stdClass(),
             ],
         ]);
     }
@@ -1129,6 +1131,60 @@ class StudentController extends Controller
     }
 
     /**
+     * POST /api/students/{id}/observed-values
+     * Admin edit mode. Can set values for any term, any time.
+     */
+    public function saveObservedValues(Request $request, $id)
+    {
+        $student = Student::find($id);
+        if (!$student) {
+            return response()->json(['message' => 'Student not found.'], 404);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'term'   => 'required|in:T1,T2,T3',
+            'values' => 'required|array',
+            'values.*' => 'required|string|in:AO,SO,RO,NO',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $term = $request->input('term');
+        $incoming = $request->input('values');
+
+        $validCoreValues = array_keys(config('school.observed_values', []));
+        foreach (array_keys($incoming) as $coreValueCode) {
+            if (!in_array($coreValueCode, $validCoreValues, true)) {
+                return response()->json([
+                    'message' => "Unknown core value: {$coreValueCode}",
+                ], 422);
+            }
+        }
+
+        $existing = $student->observedValues ?? [];
+        if (!is_array($existing)) $existing = [];
+
+        $existing[$term] = $incoming;
+        $student->observedValues = $existing;
+        $student->save();
+
+        // Re-mirror to Firebase if the card for this term is already released.
+        if (($student->reportCardReleasedTerm ?? null) === $term) {
+            try {
+                app(FirebaseRealtimeService::class)->mirrorReportCard($student);
+            } catch (\Throwable $e) {
+                \Log::error("RTDB mirrorReportCard failed after admin observed values save for {$student->studentId}: " . $e->getMessage());
+            }
+        }
+
+        return response()->json([
+            'message' => 'Observed values saved.',
+            'data'    => ['observedValues' => $student->observedValues],
+        ]);
+    }
+
+    /**
      * GET /api/report-cards/pending
      * All cards submitted to admin, grouped by grade → section.
      */
@@ -1207,6 +1263,7 @@ class StudentController extends Controller
                 'reportCardReleasedTerm'     => $s->reportCardReleasedTerm ?? null,
                 'reportCardLockedTerms'       => $s->reportCardLockedTerms ?? [],
                 'reportCardReleasedAt'       => $s->reportCardReleasedAt ?? null,
+                'observedValues'             => $s->observedValues ?? new \stdClass(),
             ];
         });
 

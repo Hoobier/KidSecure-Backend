@@ -23,10 +23,24 @@ class TeacherStudentController extends Controller
      */
     private function resolveAccess($teacher, string $gradeLevel, string $section): ?array
     {
+        $isHome = $teacher->isHomeSection($gradeLevel, $section);
+        $isVisiting = $teacher->isVisitingSection($gradeLevel, $section);
+
+        if (!$isHome && !$isVisiting) return null;
+
         $subjects = $teacher->subjectsFor($gradeLevel, $section);
+
+        // Preschool is self-contained: the adviser grades every subject for
+        // their own class. Their assignments don't carry an explicit subjects
+        // array (none existed when the migration ran), so fall back to the
+        // full entry-subject list for the grade level.
+        if (empty($subjects) && $isHome && $teacher->department === 'preschool') {
+            $subjects = \App\Services\GradeSubjectService::entryCodesForGrade($gradeLevel);
+        }
+
         if (empty($subjects)) return null;
 
-        $role = $teacher->isHomeSection($gradeLevel, $section) ? 'home' : 'visiting';
+        $role = $isHome ? 'home' : 'visiting';
         return ['role' => $role, 'subjects' => $subjects];
     }
 

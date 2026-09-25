@@ -266,10 +266,6 @@ class TeacherController extends Controller
             $home       = $data['homeAssignments'] ?? [];
             $visiting   = $data['visitingAssignments'] ?? [];
 
-            if ($department === 'preschool' && !empty($visiting)) {
-                $v->errors()->add('visitingAssignments', 'Preschool teachers do not have visiting classes.');
-            }
-
             // Each row's subjects must be offered at that row's grade level.
             foreach (['homeAssignments' => $home, 'visitingAssignments' => $visiting] as $field => $rows) {
                 foreach ($rows as $i => $row) {

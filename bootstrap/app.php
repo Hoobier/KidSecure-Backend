@@ -42,6 +42,7 @@ return Application::configure(basePath: dirname(__DIR__))
         \App\Console\Commands\MigrateTeacherAssignmentsPhase2::class,
         \App\Console\Commands\MigrateLockedTerms::class,
         \App\Console\Commands\FixLockedTermsStorage::class,
+        \App\Console\Commands\BackfillPreschoolAssignmentSubjects::class,
         \App\Console\Commands\FixTermsStorage::class,
     ])->create();
 

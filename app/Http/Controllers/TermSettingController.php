@@ -25,6 +25,9 @@ class TermSettingController extends Controller
             'terms.*.termNumber' => 'required_with:terms|integer|between:1,3',
             'terms.*.startDate' => 'nullable|date',
             'terms.*.endDate' => 'nullable|date',
+            'monthlySchoolDays'         => 'nullable|array',
+            'monthlySchoolDays.*'       => 'nullable|integer|min:0|max:31',
+            'tardyCutoff'               => ['nullable', 'string', 'regex:/^\d{2}:\d{2}$/'],
         ]);
 
         if ($validator->fails()) {
@@ -47,6 +50,12 @@ class TermSettingController extends Controller
 
         $termSetting = TermSetting::current();
         $termSetting->fill($request->only(['schoolYearLabel', 'terms']));
+        if ($request->has('monthlySchoolDays')) {
+            $termSetting->monthlySchoolDays = $request->input('monthlySchoolDays');
+        }
+        if ($request->has('tardyCutoff')) {
+            $termSetting->tardyCutoff = $request->input('tardyCutoff');
+        }
         $termSetting->save();
 
         return response()->json([
@@ -64,6 +73,8 @@ class TermSettingController extends Controller
             'rolloverStatus' => $termSetting->rolloverStatus,
             'rolloverCompletedAt' => $termSetting->rolloverCompletedAt?->format('Y-m-d'),
             'needsRollover' => $termSetting->needsRollover(),
+            'monthlySchoolDays' => $termSetting->monthlySchoolDays ?? new \stdClass(),
+            'tardyCutoff' => $termSetting->tardyCutoff ?? '08:00',
         ];
     }
 }

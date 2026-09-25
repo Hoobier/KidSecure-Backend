@@ -1264,6 +1264,7 @@ class StudentController extends Controller
                 'reportCardLockedTerms'       => $s->reportCardLockedTerms ?? [],
                 'reportCardReleasedAt'       => $s->reportCardReleasedAt ?? null,
                 'observedValues'             => $s->observedValues ?? new \stdClass(),
+                'attendanceByMonth'          => $s->attendanceByMonth ?? new \stdClass(),
             ];
         });
 

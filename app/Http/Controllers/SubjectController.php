@@ -15,6 +15,8 @@ class SubjectController extends Controller
                 'descriptors'              => config('school.descriptors', []),
                 'observed_values'         => config('school.observed_values', []),
                 'observed_value_ratings'  => config('school.observed_value_ratings', []),
+                'monthly_school_days' => \App\Models\TermSetting::current()->monthlySchoolDays ?? new \stdClass(),
+                'tardy_cutoff' => \App\Models\TermSetting::current()->tardyCutoff ?? '08:00',
                 'school_months' => config('school.school_months', []),
             ],
         ]);

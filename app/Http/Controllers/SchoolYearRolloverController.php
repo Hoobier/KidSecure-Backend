@@ -119,6 +119,10 @@ class SchoolYearRolloverController extends Controller
 
             // The grades themselves
             $student->reportCard = [];
+
+            // Values and attendance — reset for the new school year
+            $student->observedValues    = [];
+            $student->attendanceByMonth = [];
         };
 
         $validator = Validator::make($request->all(), [

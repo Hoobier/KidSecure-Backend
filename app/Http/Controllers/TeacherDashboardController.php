@@ -5,89 +5,252 @@ namespace App\Http\Controllers;
 use App\Models\AttendanceLog;
 use App\Models\Student;
 use App\Models\TermSetting;
+use App\Services\GradeSubjectService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 
 class TeacherDashboardController extends Controller
 {
-    /**
-     * GET /api/teacher/dashboard/summary
-     */
     public function summary(Request $request)
     {
         $teacher = $request->user();
-
-        $gradeLevel = $request->query('gradeLevel');
-        $section    = $request->query('section');
-
-        if (!$gradeLevel || !$section) {
-            $fallback = collect($teacher->homeAssignments ?? [])->first();
-            if (!$fallback) {
-                return response()->json(['message' => 'No home class assigned to this teacher.'], 403);
-            }
-            $gradeLevel = $gradeLevel ?? $fallback['gradeLevel'];
-            $section    = $section    ?? $fallback['section'];
-        }
-
         $termNumber = TermSetting::current()->activeTermNumber() ?? 1;
         $term = "T{$termNumber}";
 
-        $students = Student::where('gradeLevel', $gradeLevel)
-            ->where('section', $section)
-            ->whereIn('enrollmentStatus', ['active', 'inactive'])
-            ->get(['studentId', 'firstName', 'lastName', 'reportCard']);
+        $homeAssignments = $teacher->homeAssignments ?? [];
+        $visitingAssignments = $teacher->visitingAssignments ?? [];
 
-        $attendanceSummary = $this->attendanceSummary($students);
-        $homeSectionOverview = $this->homeSectionOverview($students, $term);
-        $adviserItems = $this->adviserAttentionItems($students, $term);
-        $attendanceConcerns = $this->attendanceConcerns($students);
+        $homeSections = $this->buildHomeSections($teacher, $term);
+        $visitingClasses = $this->buildVisitingClasses($teacher, $term);
 
-        $base = [
-            'teacher' => [
-                'firstName' => $teacher->firstName,
-                'lastName' => $teacher->lastName,
-                'department' => $teacher->department,
-                'homeGradeLevel' => $gradeLevel,
-                'homeSection' => $section,
-                'forteSubjectCode' => $teacher->forteSubjectCode,
-            ],
-            'activeTerm' => $term,
-            'attendanceSummary' => $attendanceSummary,
-            'homeSectionOverview' => $homeSectionOverview,
-        ];
+        $stats = $this->buildStats($homeSections, $visitingClasses);
 
-        if ($teacher->department === 'preschool') {
-            $flatItems = array_merge($adviserItems, $attendanceConcerns);
-
-            return response()->json(array_merge($base, [
-                'attentionItems' => $flatItems,
-                'pendingBadgeCount' => count($adviserItems),
-            ]));
+        // Attendance across all home-section students
+        $attendanceToday = null;
+        if (!empty($homeAssignments)) {
+            $allHomeStudents = collect();
+            foreach ($homeAssignments as $a) {
+                $allHomeStudents = $allHomeStudents->merge(
+                    Student::where('gradeLevel', $a['gradeLevel'] ?? null)
+                        ->where('section', $a['section'] ?? null)
+                        ->whereIn('enrollmentStatus', ['active', 'inactive'])
+                        ->get(['studentId', 'firstName', 'lastName', 'gradeLevel', 'section'])
+                );
+            }
+            if ($allHomeStudents->isNotEmpty()) {
+                $attendanceToday = $this->attendanceSummary($allHomeStudents);
+                $attendanceConcerns = $this->attendanceConcerns($allHomeStudents);
+            } else {
+                $attendanceConcerns = [];
+            }
+        } else {
+            $attendanceConcerns = [];
         }
 
-        // Elementary: split adviser vs. subject-teacher duties, add teaching load.
-        $subjectTeacherItems = $this->subjectTeacherAttentionItems($teacher, $term);
+        $compileItems = $this->buildCompileItems($teacher, $term);
+        $gradeItems = $this->buildGradeItems($teacher, $term);
 
-        return response()->json(array_merge($base, [
-            'attentionItems' => [
-                'asAdviser' => array_merge($adviserItems, $attendanceConcerns),
-                'asSubjectTeacher' => $subjectTeacherItems,
+        return response()->json([
+            'teacher' => [
+                'firstName' => $teacher->firstName ?? null,
+                'middleName' => $teacher->middleName ?? null,
+                'lastName' => $teacher->lastName ?? null,
+                'department' => $teacher->department ?? null,
+                'subjects' => $teacher->allAssignedSubjects(),
             ],
-            'teachingLoad' => [
-                'forteSubjectCode' => $teacher->forteSubjectCode,
-                'visitingGrades' => $this->visitingGradesForTeacher($teacher),
-            ],
-            'pendingBadgeCount' => count($adviserItems) + count($subjectTeacherItems),
-        ]));
+            'term' => $term,
+            'stats' => $stats,
+            'homeSections' => $homeSections,
+            'visitingClasses' => $visitingClasses,
+            'attendanceToday' => $attendanceToday,
+            'attendanceConcerns' => $attendanceConcerns,
+            'compileItems' => $compileItems,
+            'gradeItems' => $gradeItems,
+        ]);
     }
 
-    /**
-     * Present/absent totals for today, for the given students.
-     */
+    private function buildHomeSections($teacher, string $term): array
+    {
+        $sections = [];
+        foreach ($teacher->homeAssignments ?? [] as $a) {
+            $grade = $a['gradeLevel'] ?? null;
+            $section = $a['section'] ?? null;
+            if (!$grade || !$section) continue;
+
+            $students = Student::where('gradeLevel', $grade)
+                ->where('section', $section)
+                ->whereIn('enrollmentStatus', ['active', 'inactive'])
+                ->get();
+
+            $entryCodes = GradeSubjectService::entryCodesForGrade($grade);
+
+            $compiledCount = 0;
+            $readyToSubmitCount = 0;
+            $submittedCount = 0;
+            $releasedCount = 0;
+            $awaitingCompileCount = 0;
+
+            foreach ($students as $student) {
+                $reportCard = $student->reportCard ?? [];
+                $allCompiled = true;
+                $hasSubmitted = false;
+                $allReady = true;
+
+                foreach ($entryCodes as $subj) {
+                    $status = $reportCard[$subj][$term]['status'] ?? 'not_started';
+                    if ($status !== 'compiled') {
+                        $allCompiled = false;
+                    }
+                    if ($status === 'submitted') {
+                        $hasSubmitted = true;
+                    }
+                }
+
+                if ($allCompiled) {
+                    $compiledCount++;
+                    $reportSubmitted = $reportCard['reportCardSubmittedTerm'] ?? null;
+                    $reportReleased = $reportCard['reportCardReleasedTerm'] ?? null;
+                    if ($reportReleased === $term) {
+                        $releasedCount++;
+                    } elseif ($reportSubmitted === $term) {
+                        $submittedCount++;
+                    } else {
+                        $readyToSubmitCount++;
+                    }
+                }
+
+                foreach ($entryCodes as $subj) {
+                    $status = $reportCard[$subj][$term]['status'] ?? 'not_started';
+                    if ($status === 'submitted') {
+                        $awaitingCompileCount++;
+                        break; // count student once per section, not per subject
+                    }
+                }
+            }
+
+            $sections[] = [
+                'gradeLevel' => $grade,
+                'section' => $section,
+                'studentCount' => $students->count(),
+                'compiledCount' => $compiledCount,
+                'readyToSubmitCount' => $readyToSubmitCount,
+                'submittedCount' => $submittedCount,
+                'releasedCount' => $releasedCount,
+                'awaitingCompileCount' => $awaitingCompileCount,
+            ];
+        }
+        return $sections;
+    }
+
+    private function buildVisitingClasses($teacher, string $term): array
+    {
+        $classes = [];
+        foreach ($teacher->visitingAssignments ?? [] as $a) {
+            $grade = $a['gradeLevel'] ?? null;
+            $section = $a['section'] ?? null;
+            $subjects = $a['subjects'] ?? [];
+            if (!$grade || !$section) continue;
+
+            $students = Student::where('gradeLevel', $grade)
+                ->where('section', $section)
+                ->whereIn('enrollmentStatus', ['active', 'inactive'])
+                ->get();
+
+            foreach ($subjects as $subj) {
+                $graded = 0;
+                foreach ($students as $student) {
+                    $reportCard = $student->reportCard ?? [];
+                    $status = $reportCard[$subj][$term]['status'] ?? null;
+                    if ($status !== null && $status !== '') {
+                        $graded++;
+                    }
+                }
+                $count = $students->count();
+                $missing = $count - $graded;
+                $classes[] = [
+                    'gradeLevel' => $grade,
+                    'section' => $section,
+                    'subjectCode' => $subj,
+                    'studentCount' => $count,
+                    'gradedCount' => $graded,
+                    'missingCount' => $missing,
+                ];
+            }
+        }
+        return $classes;
+    }
+
+    private function buildStats(array $homeSections, array $visitingClasses): array
+    {
+        $homeClassCount = count($homeSections);
+        $visitingClassCount = count($visitingClasses);
+        $totalHomeStudents = array_sum(array_column($homeSections, 'studentCount'));
+        $gradesToEnter = array_sum(array_column($visitingClasses, 'missingCount'));
+        $studentsAwaitingCompile = array_sum(array_column($homeSections, 'awaitingCompileCount'));
+
+        return [
+            'homeClassCount' => $homeClassCount,
+            'visitingClassCount' => $visitingClassCount,
+            'totalHomeStudents' => $totalHomeStudents,
+            'gradesToEnter' => $gradesToEnter,
+            'studentsAwaitingCompile' => $studentsAwaitingCompile,
+        ];
+    }
+
+    private function buildCompileItems($teacher, string $term): array
+    {
+        $items = [];
+        foreach ($teacher->homeAssignments ?? [] as $a) {
+            $grade = $a['gradeLevel'] ?? null;
+            $section = $a['section'] ?? null;
+            if (!$grade || !$section) continue;
+
+            $students = Student::where('gradeLevel', $grade)
+                ->where('section', $section)
+                ->whereIn('enrollmentStatus', ['active', 'inactive'])
+                ->get();
+
+            $entryCodes = GradeSubjectService::entryCodesForGrade($grade);
+            foreach ($students as $student) {
+                $reportCard = $student->reportCard ?? [];
+                foreach ($entryCodes as $subj) {
+                    $status = $reportCard[$subj][$term]['status'] ?? null;
+                    if ($status === 'submitted') {
+                        $items[] = [
+                            'gradeLevel' => $grade,
+                            'section' => $section,
+                            'studentId' => $student->studentId,
+                            'fullName' => trim(($student->firstName ?? '') . ' ' . ($student->lastName ?? '')),
+                            'subjectCode' => $subj,
+                            'term' => $term,
+                        ];
+                    }
+                }
+            }
+        }
+        return $items;
+    }
+
+    private function buildGradeItems($teacher, string $term): array
+    {
+        $items = [];
+        $visitingClasses = $this->buildVisitingClasses($teacher, $term);
+        foreach ($visitingClasses as $cls) {
+            if ($cls['missingCount'] > 0) {
+                $items[] = [
+                    'gradeLevel' => $cls['gradeLevel'],
+                    'section' => $cls['section'],
+                    'subjectCode' => $cls['subjectCode'],
+                    'missingCount' => $cls['missingCount'],
+                ];
+            }
+        }
+        return $items;
+    }
+
     private function attendanceSummary($students): array
     {
         $studentIds = $students->pluck('studentId')->all();
-
         $start = Carbon::now('Asia/Manila')->startOfDay()->setTimezone('UTC');
         $end = Carbon::now('Asia/Manila')->endOfDay()->setTimezone('UTC');
 
@@ -103,118 +266,13 @@ class TeacherDashboardController extends Controller
         return [
             'present' => $present,
             'absent' => $total - $present,
-            'total' => $total,
+            'notYetTapped' => 0,
         ];
     }
 
-    /**
-     * Per-subject status tally for the home grade, current term.
-     * e.g. ["MATH" => ["compiled" => 20, "submitted" => 5, "draft" => 2, "not_started" => 0, "pending" => 0]]
-     */
-    private function homeSectionOverview($students, string $term): array
-    {
-        $subjects = array_keys(config('school.subjects'));
-        $statuses = ['draft', 'submitted', 'compiled', 'pending', 'not_started'];
-
-        $overview = [];
-        foreach ($subjects as $code) {
-            $overview[$code] = array_fill_keys($statuses, 0);
-        }
-
-        foreach ($students as $student) {
-            foreach ($subjects as $code) {
-                $status = $student->reportCard[$code][$term]['status'] ?? 'not_started';
-                $overview[$code][$status] = ($overview[$code][$status] ?? 0) + 1;
-            }
-        }
-
-        return $overview;
-    }
-
-    /**
-     * Subjects in the home grade with >=1 "submitted" entry waiting to be compiled.
-     * Returns one row per subject that has at least one such student.
-     */
-    private function adviserAttentionItems($students, string $term): array
-    {
-        $subjects = array_keys(config('school.subjects'));
-        $items = [];
-
-        foreach ($subjects as $code) {
-            $count = 0;
-            foreach ($students as $student) {
-                $status = $student->reportCard[$code][$term]['status'] ?? null;
-                if ($status === 'submitted') {
-                    $count++;
-                }
-            }
-            if ($count > 0) {
-                $items[] = [
-                    'type' => 'needs_compile',
-                    'subjectCode' => $code,
-                    'term' => $term,
-                    'count' => $count,
-                ];
-            }
-        }
-
-        return $items;
-    }
-
-    /**
-     * For an elementary teacher's forte subject, in every grade they visit
-     * (all elementary grades except their own home grade): how many students
-     * still have no submitted/compiled entry yet this term.
-     */
-    private function subjectTeacherAttentionItems($teacher, string $term): array
-    {
-        if (empty($teacher->forteSubjectCode)) {
-            return [];
-        }
-
-        $items = [];
-        $visitingByGrade = collect($teacher->visitingAssignments ?? [])
-            ->groupBy('gradeLevel')
-            ->map(fn ($rows) => collect($rows)->pluck('section')->all())
-            ->all();
-
-        foreach ($visitingByGrade as $gradeLevel => $sections) {
-            $students = Student::where('gradeLevel', $gradeLevel)
-                ->whereIn('section', $sections)
-                ->whereIn('enrollmentStatus', ['active', 'inactive'])
-                ->get(['reportCard']);
-
-            $notSubmitted = 0;
-            foreach ($students as $student) {
-                $status = $student->reportCard[$teacher->forteSubjectCode][$term]['status'] ?? null;
-                if (!in_array($status, ['submitted', 'compiled'], true)) {
-                    $notSubmitted++;
-                }
-            }
-
-            if ($notSubmitted > 0) {
-                $items[] = [
-                    'type' => 'needs_submission',
-                    'gradeLevel' => $gradeLevel,
-                    'subjectCode' => $teacher->forteSubjectCode,
-                    'term' => $term,
-                    'count' => $notSubmitted,
-                ];
-            }
-        }
-
-        return $items;
-    }
-
-    /**
-     * Students in this grade with zero attendance taps on each of the last
-     * 3 calendar days (not counting today, since today may still be in progress).
-     */
     private function attendanceConcerns($students): array
     {
-        $studentIds = $students->pluck('studentId')->all();
         $concerns = [];
-
         $days = [
             Carbon::now('Asia/Manila')->subDay(),
             Carbon::now('Asia/Manila')->subDays(2),
@@ -223,37 +281,30 @@ class TeacherDashboardController extends Controller
 
         foreach ($students as $student) {
             $allAbsent = true;
-
             foreach ($days as $day) {
                 $start = $day->copy()->startOfDay()->setTimezone('UTC');
                 $end = $day->copy()->endOfDay()->setTimezone('UTC');
-
                 $hasTap = AttendanceLog::where('studentId', $student->studentId)
                     ->whereBetween('timestamp', [$start, $end])
                     ->exists();
-
                 if ($hasTap) {
                     $allAbsent = false;
                     break;
                 }
             }
-
             if ($allAbsent) {
                 $concerns[] = [
-                    'type' => 'absent_pattern',
                     'studentId' => $student->studentId,
-                    'studentName' => trim("{$student->firstName} {$student->lastName}"),
-                    'message' => 'Absent 3 days running',
+                    'fullName' => trim(($student->firstName ?? '') . ' ' . ($student->lastName ?? '')),
+                    'gradeLevel' => $student->gradeLevel ?? null,
+                    'section' => $student->section ?? null,
+                    'daysMissing' => 3,
                 ];
             }
         }
-
         return $concerns;
     }
 
-    /**
-     * Distinct grade levels this teacher visits (from visitingAssignments).
-     */
     private function visitingGradesForTeacher($teacher): array
     {
         return $teacher->visitingGradeLevels();

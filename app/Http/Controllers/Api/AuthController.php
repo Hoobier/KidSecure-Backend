@@ -76,8 +76,7 @@ class AuthController extends Controller
                 'lastName' => $teacher->lastName,
                 'email' => $teacher->email,
                 'department' => $teacher->department,
-                'homeGradeLevel' => $teacher->homeGradeLevel,
-                'forteSubjectCode' => $teacher->forteSubjectCode,
+                'subjects' => $teacher->allAssignedSubjects(),
             ],
         ]);
     }

@@ -288,7 +288,7 @@ class SchoolYearRolloverController extends Controller
                 'gradeLevel'       => $a['gradeLevel'],
                 'section'          => $a['section'],
                 'role'             => 'home',
-                'forteSubjectCode' => $teacher->forteSubjectCode,
+                'subjects' => $a['subjects'] ?? [],
             ];
         }
         foreach ($teacher->visitingAssignments ?? [] as $a) {
@@ -296,7 +296,7 @@ class SchoolYearRolloverController extends Controller
                 'gradeLevel'       => $a['gradeLevel'],
                 'section'          => $a['section'],
                 'role'             => 'visiting',
-                'forteSubjectCode' => $teacher->forteSubjectCode,
+                'subjects' => $a['subjects'] ?? [],
             ];
         }
 

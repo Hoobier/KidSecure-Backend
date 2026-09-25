@@ -107,6 +107,7 @@ Route::middleware(['auth:sanctum', 'actor:admin'])->group(function () {
 
 Route::middleware(['auth:sanctum', 'actor:teacher'])->prefix('teacher')->group(function () {
     Route::get('/ping', fn () => response()->json(['ok' => true]));
+    Route::get('/dashboard/summary', [TeacherDashboardController::class, 'summary']);
     Route::get('/attendance-logs', [TeacherAttendanceController::class, 'index']);
     Route::get('/students', [TeacherStudentController::class, 'index']);
     Route::get('/students/{id}', [TeacherStudentController::class, 'show']);

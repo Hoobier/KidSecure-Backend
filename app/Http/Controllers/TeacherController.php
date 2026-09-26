@@ -136,6 +136,7 @@ class TeacherController extends Controller
                 'fullName'            => $fullName,
                 'email'               => $teacher->email,
                 'department'          => $teacher->department,
+                'subjects'            => $teacher->allAssignedSubjects(),
                 'homeAssignments'     => $teacher->homeAssignments ?? [],
                 'visitingAssignments' => $teacher->visitingAssignments ?? [],
                 'status'              => $teacher->status ?? 'active',

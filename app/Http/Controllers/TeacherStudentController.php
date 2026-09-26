@@ -316,25 +316,25 @@ class TeacherStudentController extends Controller
                 // the subject. For a visiting teacher, always writes to draft.
                 $isAdviserOwn = ($access['role'] === 'home');
 
+                // Visiting teachers cannot modify compiled entries at all.
+                // Advisers can (they compiled it; they can re-verify).
                 if ($changed && $oldStatus === 'compiled' && !$isAdviserOwn) {
-                    if (empty($note)) {
-                        return response()->json([
-                            'message' => "A note is required when editing an already compiled entry ({$subjectCode} {$term}).",
-                        ], 422);
-                    }
-                    ReportCardRevision::create([
-                        'studentId'   => $student->studentId,
-                        'subjectCode' => $subjectCode,
-                        'term'        => $term,
-                        'note'        => $note,
-                        'changedAt'   => now(),
-                    ]);
+                    return response()->json([
+                        'message' => "This grade is already compiled. Contact the adviser or admin to request a change.",
+                    ], 423);
                 }
 
                 if ($isAdviserOwn) {
                     $newStatus = ($newGrade === null || $newGrade === '') ? 'draft' : 'compiled';
                 } else {
-                    $newStatus = 'draft';
+                    // Visiting teacher: keep an already-compiled entry compiled
+                    // when the value hasn't changed. If the value changed, flip
+                    // back to draft so the adviser re-verifies.
+                    if ($oldStatus === 'compiled' && !$changed) {
+                        $newStatus = 'compiled';
+                    } else {
+                        $newStatus = 'draft';
+                    }
                 }
 
                 $existing[$subjectCode][$term] = [
@@ -397,6 +397,14 @@ class TeacherStudentController extends Controller
             return response()->json([
                 'message' => "Please enter a grade for {$code} {$term} before submitting.",
             ], 422);
+        }
+
+        // No-op if already compiled — a re-submit must not demote it.
+        if (($entry['status'] ?? null) === 'compiled') {
+            return response()->json([
+                'message' => "{$code} {$term} is already compiled.",
+                'data'    => ['grades' => $student->reportCard],
+            ]);
         }
 
         $existing[$code][$term] = [

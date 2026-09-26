@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\ParentAccount;
 use App\Models\Student;
+use App\Models\AttendanceLog;
 use App\Models\ReportCardRevision;
 use App\Services\GradeSubjectService;
 use Illuminate\Http\Request;
@@ -213,6 +214,35 @@ class TeacherStudentController extends Controller
             }
             $data['reportCard'] = $filtered;
         }
+
+        // ------------------------------------------------------------------
+        // Today's attendance — visible to both home and visiting teachers.
+        // Uses Asia/Manila calendar day boundaries; timestamps stored in UTC.
+        // ------------------------------------------------------------------
+        $todayManila = \Carbon\Carbon::now('Asia/Manila')->toDateString();
+        $startUtc = \Carbon\Carbon::parse($todayManila, 'Asia/Manila')
+            ->startOfDay()->setTimezone('UTC');
+        $endUtc = \Carbon\Carbon::parse($todayManila, 'Asia/Manila')
+            ->endOfDay()->setTimezone('UTC');
+
+        $todayLogs = AttendanceLog::where('studentId', $student->studentId)
+            ->whereBetween('timestamp', [$startUtc, $endUtc])
+            ->orderBy('timestamp', 'asc')
+            ->get(['timestamp']);
+
+        $hasTaps = $todayLogs->count() > 0;
+        $firstTap = $hasTaps ? $todayLogs->first()->timestamp : null;
+        $lastTap = $hasTaps ? $todayLogs->last()->timestamp : null;
+
+        $data['attendanceToday'] = [
+            'date'     => $todayManila,
+            'hasTaps'  => $hasTaps,
+            'timeIn'   => $firstTap ? \Carbon\Carbon::parse($firstTap)->toIso8601String() : null,
+            'timeOut'  => ($hasTaps && $todayLogs->count() > 1)
+                ? \Carbon\Carbon::parse($lastTap)->toIso8601String()
+                : null,
+            'status'   => $hasTaps ? 'present' : 'absent',
+        ];
 
         return response()->json(['data' => $data]);
     }

@@ -30,12 +30,22 @@ class TeacherAttendanceController extends Controller
         $section    = $request->query('section');
 
         if (!$gradeLevel || !$section) {
-            $fallback = collect($teacher->homeAssignments ?? [])->first();
+            $fallback = collect($teacher->homeAssignments ?? [])->first()
+                ?? collect($teacher->visitingAssignments ?? [])->first();
+
             if (!$fallback) {
-                return response()->json(['message' => 'No home class assigned to this teacher.'], 403);
+                return response()->json(['message' => 'No classes assigned to this teacher.'], 403);
             }
             $gradeLevel = $gradeLevel ?? $fallback['gradeLevel'];
             $section    = $section    ?? $fallback['section'];
+        }
+
+        // Verify the teacher actually teaches this section — home or visiting.
+        $isHome     = $teacher->isHomeSection($gradeLevel, $section);
+        $isVisiting = $teacher->isVisitingSection($gradeLevel, $section);
+
+        if (!$isHome && !$isVisiting) {
+            return response()->json(['message' => 'Unauthorized for this class.'], 403);
         }
 
         $students = Student::where('gradeLevel', $gradeLevel)

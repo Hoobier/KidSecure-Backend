@@ -127,6 +127,54 @@ class TeacherController extends Controller
         $fullName = trim(($teacher->firstName ?? '') . ' ' . ($teacher->middleName ?? '') . ' ' . ($teacher->lastName ?? ''));
         $fullName = preg_replace('/\s+/', ' ', $fullName);
 
+        // ------------------------------------------------------------------
+        // Build "taken" maps for the edit form: which sections already have
+        // a home adviser, and which subjects are already assigned in each
+        // section (via another teacher's home OR visiting assignment).
+        //
+        // The currently-edited teacher is excluded — their own assignments
+        // should never appear as "taken" in their own form.
+        // Soft-deleted teachers ARE included, so sections stay reserved
+        // until the admin restores the teacher or manually reassigns.
+        // ------------------------------------------------------------------
+        $takenHomeSections = [];
+        $takenSubjectsBySection = [];
+
+        $others = Teacher::where('_id', '!=', $teacher->_id)->get();
+        foreach ($others as $other) {
+            $name = trim(($other->firstName ?? '') . ' ' . ($other->lastName ?? ''));
+            $name = preg_replace('/\s+/', ' ', $name);
+
+            foreach ($other->homeAssignments ?? [] as $a) {
+                $grade   = $a['gradeLevel'] ?? null;
+                $section = $a['section'] ?? null;
+                if (!$grade || !$section) continue;
+                $key = "{$grade}|{$section}";
+
+                if (!isset($takenHomeSections[$key])) {
+                    $takenHomeSections[$key] = ['teacherName' => $name];
+                }
+                foreach ($a['subjects'] ?? [] as $code) {
+                    if (!isset($takenSubjectsBySection[$key][$code])) {
+                        $takenSubjectsBySection[$key][$code] = ['teacherName' => $name];
+                    }
+                }
+            }
+
+            foreach ($other->visitingAssignments ?? [] as $a) {
+                $grade   = $a['gradeLevel'] ?? null;
+                $section = $a['section'] ?? null;
+                if (!$grade || !$section) continue;
+                $key = "{$grade}|{$section}";
+
+                foreach ($a['subjects'] ?? [] as $code) {
+                    if (!isset($takenSubjectsBySection[$key][$code])) {
+                        $takenSubjectsBySection[$key][$code] = ['teacherName' => $name];
+                    }
+                }
+            }
+        }
+
         return response()->json([
             'data' => [
                 'id'                  => (string) $teacher->_id,
@@ -141,6 +189,8 @@ class TeacherController extends Controller
                 'visitingAssignments' => $teacher->visitingAssignments ?? [],
                 'status'              => $teacher->status ?? 'active',
                 'createdAt'           => $teacher->created_at,
+                'takenHomeSections'       => (object) $takenHomeSections,
+                'takenSubjectsBySection'  => (object) $takenSubjectsBySection,
             ],
         ]);
     }

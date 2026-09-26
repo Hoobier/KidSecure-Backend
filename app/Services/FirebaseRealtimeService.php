@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\ParentAccount;
 use App\Models\Student;
 use App\Models\AttendanceLog;
+use App\Models\TermSetting;
 use Kreait\Firebase\Contract\Database as FirebaseDatabase;
 use Kreait\Firebase\Messaging\CloudMessage;
 use Kreait\Firebase\Contract\Messaging as FirebaseMessaging;
@@ -118,40 +119,90 @@ class FirebaseRealtimeService
         }
 
         $term = $student->reportCardReleasedTerm ?? null;
+        $baseRef = $this->db->getReference("students/{$student->studentId}");
 
-        // Nothing is currently released for this student → make sure
-        // Firebase doesn't have a stale card lying around.
+        // Nothing is currently released — clear all three child nodes so the
+        // parent app doesn't render stale data.
         if (!$term) {
-            $this->db
-                ->getReference("students/{$student->studentId}/reportCard")
-                ->remove();
+            $baseRef->getChild('reportCard')->remove();
+            $baseRef->getChild('reportCardMeta')->remove();
+            $baseRef->getChild('observedValues')->remove();
             return;
         }
 
-        // Build a term-scoped view: { SUBJECT: { T2: { grade, status } }, ... }
+        $gradeLevel = $student->gradeLevel;
         $card = $student->reportCard ?? [];
-        $scoped = [];
-        foreach ($card as $subjectCode => $terms) {
-            if (isset($terms[$term])) {
-                $scoped[$subjectCode] = [$term => $terms[$term]];
+
+        // Collapse to display subjects. MAPEH (a computed code) replaces its
+        // four components (MU, AR, PE, H). Every other code passes through.
+        $displayCodes = GradeSubjectService::displayCodesForGrade($gradeLevel);
+        $displayCard = [];
+        $subjectNames = [];
+
+        foreach ($displayCodes as $code) {
+            $subjectNames[$code] = config("school.subjects.{$code}", $code);
+
+            if (GradeSubjectService::isComputed($code)) {
+                $grade = GradeSubjectService::computedGradeForTerm($card, $code, $term);
+                if ($grade !== null) {
+                    $displayCard[$code] = [
+                        $term => ['grade' => (string) $grade, 'computed' => true],
+                    ];
+                }
+                continue;
+            }
+
+            $entry = $card[$code][$term] ?? null;
+            if (
+                is_array($entry)
+                && isset($entry['grade'])
+                && $entry['grade'] !== null
+                && $entry['grade'] !== ''
+            ) {
+                $displayCard[$code] = [$term => $entry];
             }
         }
 
-        $this->db
-            ->getReference("students/{$student->studentId}/reportCard")
-            ->set($scoped);
+        // Labels for observed values + rating codes, so the app can render
+        // "God-centered" and "Always Observed" without hardcoding them.
+        $observedConfig = config('school.observed_values', []);
+        $observedValueLabels = [];
+        foreach ($observedConfig as $code => $def) {
+            $observedValueLabels[$code] = $def['label'] ?? $code;
+        }
+        $ratingLabels = config('school.observed_value_ratings', []);
 
-        // Also mirror the observed values for the released term.
+        $termSetting = TermSetting::current();
+
+        $meta = [
+            'schoolYear' => $termSetting->schoolYearLabel ?? null,
+            'term' => $term,
+            'releasedAt' => $student->reportCardReleasedAt
+                ? $student->reportCardReleasedAt->timestamp * 1000
+                : null,
+            'displayOrder' => $displayCodes,
+            'subjectNames' => $subjectNames,
+            'observedValueLabels' => $observedValueLabels,
+            'ratingLabels' => $ratingLabels,
+        ];
+
+        // Top-level update: replaces reportCard, sets reportCardMeta.
+        $baseRef->update([
+            'reportCard' => $displayCard,
+            'reportCardMeta' => $meta,
+        ]);
+
+        // Observed values — already term-scoped, keep as-is.
         $values = $student->observedValues ?? [];
-        if (is_array($values) && isset($values[$term]) && is_array($values[$term]) && !empty($values[$term])) {
-            $this->db
-                ->getReference("students/{$student->studentId}/observedValues")
-                ->set([$term => $values[$term]]);
+        if (
+            is_array($values)
+            && isset($values[$term])
+            && is_array($values[$term])
+            && !empty($values[$term])
+        ) {
+            $baseRef->getChild('observedValues')->set([$term => $values[$term]]);
         } else {
-            // No values for this term — make sure Firebase isn't holding stale ones.
-            $this->db
-                ->getReference("students/{$student->studentId}/observedValues")
-                ->remove();
+            $baseRef->getChild('observedValues')->remove();
         }
     }
 

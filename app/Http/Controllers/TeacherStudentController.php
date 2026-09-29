@@ -620,15 +620,6 @@ class TeacherStudentController extends Controller
 
         $term = $request->input('term');
 
-        // Only the active term is editable by the adviser.
-        $activeTermNumber = \App\Models\TermSetting::current()->activeTermNumber() ?? 1;
-        $activeTerm = "T{$activeTermNumber}";
-        if ($term !== $activeTerm) {
-            return response()->json([
-                'message' => 'Only the currently active term can be edited.',
-            ], 422);
-        }
-
         if ($locked = $this->rejectIfTermLocked($student, $term)) {
             return $locked;
         }
@@ -696,10 +687,9 @@ class TeacherStudentController extends Controller
             return response()->json(['message' => 'Only the advisory teacher can enter attendance.'], 403);
         }
 
-        if ($student->attendanceLocked()) {
-            return response()->json([
-                'message' => 'Attendance is now managed by the school office.',
-            ], 423);
+        $term = $request->input('term');
+        if ($locked = $this->rejectIfTermLocked($student, $term)) {
+            return $locked;
         }
 
         $validator = Validator::make($request->all(), [

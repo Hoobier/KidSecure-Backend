@@ -28,6 +28,9 @@ class TermSettingController extends Controller
             'monthlySchoolDays'         => 'nullable|array',
             'monthlySchoolDays.*'       => 'nullable|integer|min:0|max:31',
             'tardyCutoff'               => ['nullable', 'string', 'regex:/^\d{2}:\d{2}$/'],
+            'schoolDayCalendar'         => 'nullable|array',
+            'schoolDayCalendar.*'       => 'nullable|array',
+            'schoolDayCalendar.*.*'     => 'nullable|date_format:Y-m-d',
         ]);
 
         if ($validator->fails()) {
@@ -48,6 +51,32 @@ class TermSettingController extends Controller
             }
         }
 
+        if ($request->has('schoolDayCalendar')) {
+            $validMonths = config('school.school_months', []);
+            foreach ($request->input('schoolDayCalendar') as $monthName => $dates) {
+                if (!in_array($monthName, $validMonths, true)) {
+                    return response()->json([
+                        'message' => "Unknown month in calendar: {$monthName}.",
+                    ], 422);
+                }
+                $seen = [];
+                foreach ((array) $dates as $date) {
+                    $parsed = \Carbon\Carbon::parse($date);
+                    if ($parsed->format('F') !== $monthName) {
+                        return response()->json([
+                            'message' => "{$date} is not in {$monthName}.",
+                        ], 422);
+                    }
+                    if (isset($seen[$date])) {
+                        return response()->json([
+                            'message' => "Duplicate date in {$monthName}: {$date}.",
+                        ], 422);
+                    }
+                    $seen[$date] = true;
+                }
+            }
+        }
+
         $termSetting = TermSetting::current();
         $termSetting->fill($request->only(['schoolYearLabel', 'terms']));
         if ($request->has('monthlySchoolDays')) {
@@ -55,6 +84,9 @@ class TermSettingController extends Controller
         }
         if ($request->has('tardyCutoff')) {
             $termSetting->tardyCutoff = $request->input('tardyCutoff');
+        }
+        if ($request->has('schoolDayCalendar')) {
+            $termSetting->schoolDayCalendar = $request->input('schoolDayCalendar');
         }
         $termSetting->save();
 
@@ -74,6 +106,7 @@ class TermSettingController extends Controller
             'rolloverCompletedAt' => $termSetting->rolloverCompletedAt?->format('Y-m-d'),
             'needsRollover' => $termSetting->needsRollover(),
             'monthlySchoolDays' => $termSetting->monthlySchoolDays ?? new \stdClass(),
+            'schoolDayCalendar' => $termSetting->schoolDayCalendar ?? new \stdClass(),
             'tardyCutoff' => $termSetting->tardyCutoff ?? '08:00',
         ];
     }

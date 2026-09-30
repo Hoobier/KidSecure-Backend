@@ -16,6 +16,7 @@ class TermSetting extends Model
         'rolloverStatus',
         'rolloverCompletedAt',
         'monthlySchoolDays',
+        'schoolDayCalendar',
         'tardyCutoff',
     ];
 

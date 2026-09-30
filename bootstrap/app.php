@@ -44,6 +44,7 @@ return Application::configure(basePath: dirname(__DIR__))
         \App\Console\Commands\FixLockedTermsStorage::class,
         \App\Console\Commands\BackfillPreschoolAssignmentSubjects::class,
         \App\Console\Commands\FixTermsStorage::class,
+        \App\Console\Commands\CleanupStaleAttendanceOverrides::class,
     ])->create();
 
     

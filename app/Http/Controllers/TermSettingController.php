@@ -79,7 +79,17 @@ class TermSettingController extends Controller
 
         $termSetting = TermSetting::current();
         $termSetting->fill($request->only(['schoolYearLabel', 'terms']));
-        if ($request->has('monthlySchoolDays')) {
+        // If a calendar is provided, monthlySchoolDays becomes a derived count
+        // from it (single source of truth). Otherwise, keep the old explicit
+        // value if one was sent (transitional fallback).
+        if ($request->has('schoolDayCalendar')) {
+            $calendar = $request->input('schoolDayCalendar');
+            $derived = [];
+            foreach ($calendar as $monthName => $dates) {
+                $derived[$monthName] = is_array($dates) ? count($dates) : 0;
+            }
+            $termSetting->monthlySchoolDays = $derived;
+        } elseif ($request->has('monthlySchoolDays')) {
             $termSetting->monthlySchoolDays = $request->input('monthlySchoolDays');
         }
         if ($request->has('tardyCutoff')) {

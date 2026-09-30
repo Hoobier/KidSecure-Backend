@@ -1352,15 +1352,16 @@ class StudentController extends Controller
         return response()->json(['message' => 'Student unarchived.']);
     }
 
-    public function attendance($id)
+    public function attendance(Request $request, $id)
     {
         $student = Student::find($id);
         if (!$student) {
             return response()->json(['message' => 'Student not found.'], 404);
         }
 
+        $viewTerm = $request->query('term');
         $service = app(\App\Services\AttendanceDeriveService::class);
-        $months = $service->mergedForStudent($student);
+        $months = $service->mergedForStudent($student, $viewTerm);
 
         return response()->json([
             'data' => [

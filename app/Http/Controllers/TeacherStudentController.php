@@ -662,8 +662,9 @@ class TeacherStudentController extends Controller
             return response()->json(['message' => 'Only the advisory teacher can view attendance.'], 403);
         }
 
+        $viewTerm = $request->query('term');
         $service = app(\App\Services\AttendanceDeriveService::class);
-        $months = $service->mergedForStudent($student);
+        $months = $service->mergedForStudent($student, $viewTerm);
 
         return response()->json([
             'data' => [

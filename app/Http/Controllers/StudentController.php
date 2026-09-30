@@ -1144,7 +1144,7 @@ class StudentController extends Controller
         $validator = Validator::make($request->all(), [
             'term'   => 'required|in:T1,T2,T3',
             'values' => 'required|array',
-            'values.*' => 'required|string|in:AO,SO,RO,NO',
+            'values.*' => 'nullable|string|in:AO,SO,RO,NO',
         ]);
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->errors()], 422);
@@ -1165,7 +1165,11 @@ class StudentController extends Controller
         $existing = $student->observedValues ?? [];
         if (!is_array($existing)) $existing = [];
 
-        $existing[$term] = $incoming;
+        // Strip empty-string entries — the frontend sends all four codes on every
+        // save (empty for unset ones), and we only want to persist actual ratings.
+        $clean = array_filter($incoming, fn ($v) => $v !== null && $v !== '');
+
+        $existing[$term] = $clean;
         $student->observedValues = $existing;
         $student->save();
 
@@ -1250,7 +1254,7 @@ class StudentController extends Controller
             ->orderBy('firstName')
             ->get();
 
-        $data = $students->map(function ($s) {
+        $data = $students->map(function ($s) use ($term){
             return [
                 'id'                         => (string) $s->_id,
                 'studentId'                  => $s->studentId,
@@ -1265,6 +1269,7 @@ class StudentController extends Controller
                 'reportCardReleasedAt'       => $s->reportCardReleasedAt ?? null,
                 'observedValues'             => $s->observedValues ?? new \stdClass(),
                 'attendanceByMonth'          => $s->attendanceByMonth ?? new \stdClass(),
+                'attendance'                 => app(\App\Services\AttendanceDeriveService::class)->mergedForStudent($s, $term),
             ];
         });
 

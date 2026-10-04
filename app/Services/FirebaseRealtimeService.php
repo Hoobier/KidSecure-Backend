@@ -183,6 +183,7 @@ class FirebaseRealtimeService
             'displayOrder' => $displayCodes,
             'subjectNames' => $subjectNames,
             'observedValueLabels' => $observedValueLabels,
+            'observedValueOrder' => array_keys($observedConfig),
             'ratingLabels' => $ratingLabels,
         ];
 

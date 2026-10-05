@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Validator;
 use App\Models\ParentAccount;
 use App\Models\RfidCard;
 use App\Services\FirebaseService;
+use App\Services\FirebaseRealtimeService;
 use Illuminate\Support\Facades\Log;
 
 
@@ -268,6 +269,18 @@ class SchoolYearRolloverController extends Controller
                 app(FirebaseService::class)->disableParentAccount($uid);
             } catch (\Throwable $e) {
                 Log::error("Failed to disable Firebase account {$uid} after rollover: " . $e->getMessage());
+            }
+        }
+
+        // Re-mirror every student whose Mongo record was acted on, so the parent
+        // app sees the promoted grade level immediately. Without this, students
+        // keep showing last year's gradeSection in the mobile app.
+        $realtime = app(FirebaseRealtimeService::class);
+        foreach ($students as $entry) {
+            try {
+                $realtime->mirrorStudent($entry['student']);
+            } catch (\Throwable $e) {
+                Log::error("RTDB mirrorStudent failed after rollover for {$entry['student']->studentId}: " . $e->getMessage());
             }
         }
 
